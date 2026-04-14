@@ -76,12 +76,16 @@ export async function proxyRequest(clientReq, clientRes, state) {
       headers,
     },
     (proxyRes) => {
-      clientRes.writeHead(proxyRes.statusCode, proxyRes.headers)
-
       if (backend.filterChinese) {
+        const filteredHeaders = { ...proxyRes.headers }
+        delete filteredHeaders['content-length']
+        filteredHeaders['transfer-encoding'] = 'chunked'
+        clientRes.writeHead(proxyRes.statusCode, filteredHeaders)
+
         const filter = createChineseFilter()
         proxyRes.pipe(filter).pipe(clientRes)
       } else {
+        clientRes.writeHead(proxyRes.statusCode, proxyRes.headers)
         proxyRes.pipe(clientRes)
       }
     }

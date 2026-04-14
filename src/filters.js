@@ -1,6 +1,6 @@
 import { Transform } from 'node:stream'
 
-const CJK_PATTERN = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]/g
+const CJK_PATTERN = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+/g
 
 export function containsChinese(text) {
   return CJK_PATTERN.test(text)
