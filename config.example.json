@@ -1,0 +1,17 @@
+{
+  "port": 3456,
+  "activeBackend": "claude",
+  "backends": {
+    "claude": {
+      "name": "Claude API",
+      "baseUrl": "https://api.anthropic.com",
+      "apiKey": null
+    },
+    "minimax": {
+      "name": "MiniMax API",
+      "baseUrl": "https://api.minimax.io/anthropic",
+      "apiKey": "${YOUR_MINIMAX_API_KEY}",
+      "modelMapping": "MiniMax-M2.7"
+    }
+  }
+}

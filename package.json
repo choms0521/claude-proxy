@@ -1,0 +1,12 @@
+{
+  "name": "claude-proxy",
+  "version": "1.0.0",
+  "description": "Proxy router for switching between Anthropic-compatible API backends",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
