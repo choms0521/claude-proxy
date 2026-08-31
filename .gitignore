@@ -3,3 +3,5 @@ node_modules/
 .omc
 config.json
 .omx/
+proxy.log
+proxy.pid
