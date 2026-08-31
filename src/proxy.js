@@ -1,5 +1,6 @@
 import https from 'node:https'
 import http from 'node:http'
+import zlib from 'node:zlib'
 import { getActiveBackend } from './config.js'
 import { sendJson, readBody, log } from './utils.js'
 import { createChineseFilter } from './filters.js'
@@ -19,6 +20,12 @@ function buildHeaders(originalHeaders, backend, targetUrl) {
 
   delete headers['connection']
   delete headers['keep-alive']
+
+  // When we intend to filter the response body as text, ask upstream for an
+  // uncompressed stream so the text filter never sees compressed bytes.
+  if (backend.filterChinese) {
+    headers['accept-encoding'] = 'identity'
+  }
 
   return headers
 }
@@ -79,11 +86,25 @@ export async function proxyRequest(clientReq, clientRes, state) {
       if (backend.filterChinese) {
         const filteredHeaders = { ...proxyRes.headers }
         delete filteredHeaders['content-length']
+        // The filtered body is emitted uncompressed, so any upstream
+        // content-encoding no longer describes what the client receives.
+        delete filteredHeaders['content-encoding']
         filteredHeaders['transfer-encoding'] = 'chunked'
         clientRes.writeHead(proxyRes.statusCode, filteredHeaders)
 
+        // Defense in depth: even though we request `accept-encoding: identity`,
+        // upstream may still compress. Decompress before the text filter so it
+        // never operates on compressed bytes (which would corrupt the stream).
+        const encoding = (proxyRes.headers['content-encoding'] || '').toLowerCase()
+        const decompressor =
+          encoding === 'gzip' ? zlib.createGunzip()
+          : encoding === 'br' ? zlib.createBrotliDecompress()
+          : encoding === 'deflate' ? zlib.createInflate()
+          : null
+
         const filter = createChineseFilter()
-        proxyRes.pipe(filter).pipe(clientRes)
+        const source = decompressor ? proxyRes.pipe(decompressor) : proxyRes
+        source.pipe(filter).pipe(clientRes)
       } else {
         clientRes.writeHead(proxyRes.statusCode, proxyRes.headers)
         proxyRes.pipe(clientRes)
