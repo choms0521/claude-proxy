@@ -107,7 +107,8 @@ curl -s http://localhost:3456/admin/status | jq .
     "claude": {
       "name": "Claude API",
       "baseUrl": "https://api.anthropic.com",
-      "apiKey": null
+      "apiKey": null,
+      "forwardClientAuth": true
     },
     "minimax": {
       "name": "MiniMax API",
@@ -125,8 +126,9 @@ curl -s http://localhost:3456/admin/status | jq .
 |------|------|------|
 | `name` | O | 표시용 백엔드 이름 |
 | `baseUrl` | O | API 엔드포인트 기본 URL. 요청 path가 이 뒤에 붙음 (`baseUrl + /v1/messages`) |
-| `apiKey` | O | API 키. `null`이면 클라이언트가 보낸 원본 키 패스스루. `${ENV_VAR}` 형식으로 환경변수 참조 가능 |
+| `apiKey` | O | API 키. `null`이면 클라이언트가 보낸 원본 키 패스스루(단, `forwardClientAuth`가 `true`인 백엔드에서만). `${ENV_VAR}` 형식으로 환경변수 참조 가능 |
 | `modelMapping` | X | 설정 시 요청 body의 `model` 필드를 이 값으로 교체. Claude Code가 보내는 `claude-opus-4-6` 등을 백엔드에 맞게 변환 |
+| `forwardClientAuth` | X | `true`이면 클라이언트가 보낸 인증 헤더(`authorization`, `x-api-key`, `proxy-authorization`, `cookie`)를 그대로 백엔드에 전달. 기본값은 `false`이며, 이 경우 위 헤더를 모두 제거한 뒤 `apiKey`가 있으면 `x-api-key`로 주입. 실제 Claude API 백엔드에만 `true`를 설정해 Claude Code의 OAuth 토큰이 제3자 백엔드로 유출되지 않도록 한다 |
 
 ### 새 백엔드 추가
 

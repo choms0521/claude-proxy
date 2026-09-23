@@ -4,30 +4,11 @@ import zlib from 'node:zlib'
 import { getActiveBackend } from './config.js'
 import { sendJson, readBody, log } from './utils.js'
 import { createChineseFilter } from './filters.js'
+import { buildHeaders } from './headers.js'
 
 function buildTargetUrl(backend, path) {
   const base = backend.baseUrl.replace(/\/$/, '')
   return new URL(base + path)
-}
-
-function buildHeaders(originalHeaders, backend, targetUrl) {
-  const headers = { ...originalHeaders }
-
-  if (backend.apiKey) {
-    headers['x-api-key'] = backend.apiKey
-  }
-  headers['host'] = targetUrl.host
-
-  delete headers['connection']
-  delete headers['keep-alive']
-
-  // When we intend to filter the response body as text, ask upstream for an
-  // uncompressed stream so the text filter never sees compressed bytes.
-  if (backend.filterChinese) {
-    headers['accept-encoding'] = 'identity'
-  }
-
-  return headers
 }
 
 export async function proxyRequest(clientReq, clientRes, state) {

@@ -5,7 +5,8 @@
     "claude": {
       "name": "Claude API",
       "baseUrl": "https://api.anthropic.com",
-      "apiKey": null
+      "apiKey": null,
+      "forwardClientAuth": true
     },
     "minimax": {
       "name": "MiniMax API",
