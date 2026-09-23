@@ -1,0 +1,48 @@
+# Top-level stack: CLIProxyAPI (included) + Claude Code Proxy Router.
+#
+# include.env_file is set explicitly because older Compose releases resolved
+# it against the current working directory (docker/compose#11577). Compose
+# v5.3 resolves it correctly; bin/claude-proxy still runs compose from the
+# repository root so both behaviors work.
+#
+# Before the migration the existing cli-proxy-api container belongs to the
+# "cliproxyapi" project and network, so the router cannot resolve the
+# cli-proxy-api hostname. Set ROUTER_CLIPROXY_BASE_URL (for example
+# http://host.docker.internal:8317) until the migration is done.
+#
+# CLIPROXY_DIR points at the CLIProxyAPI checkout. It defaults to
+# services/CLIProxyAPI (after the folder migration). Before the migration,
+# export CLIPROXY_DIR=/absolute/path/to/CLIProxyAPI.
+name: claude-proxy
+
+include:
+  - path:
+      - ${CLIPROXY_DIR:-services/CLIProxyAPI}/docker-compose.yml
+      - compose/cli-proxy-api.override.yml
+    project_directory: ${CLIPROXY_DIR:-services/CLIProxyAPI}
+    env_file: ${CLIPROXY_DIR:-services/CLIProxyAPI}/.env
+
+services:
+  router:
+    build: .
+    container_name: claude-proxy-router
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3456:3456"
+    environment:
+      PROXY_HOST: 0.0.0.0
+      CLIPROXY_BASE_URL: ${ROUTER_CLIPROXY_BASE_URL:-http://cli-proxy-api:8317}
+      # Secrets are passed through by name from the calling shell.
+      CLIPROXY_KEY:
+      MINIMAX_API_KEY:
+      KIMI_API_KEY:
+    volumes:
+      - type: bind
+        source: ./config.json
+        target: /app/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      cli-proxy-api:
+        condition: service_started

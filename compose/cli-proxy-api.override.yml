@@ -1,0 +1,21 @@
+# Overrides applied on top of CLIProxyAPI's upstream docker-compose.yml
+# (the upstream file is third-party and is not edited).
+#
+# - pull_policy: upstream uses "always", which pulls on every "up" and
+#   recreates the container when the image changed. "missing" keeps the
+#   existing image until it is pulled explicitly.
+# - ports: upstream publishes every port on all interfaces. Bind them to
+#   loopback only. 8317 is the API; the others are OAuth callback ports
+#   reached from the local browser.
+# - No healthcheck: the image (Debian bookworm) ships neither curl nor wget.
+#   bin/claude-proxy checks readiness over HTTP from the host instead.
+services:
+  cli-proxy-api:
+    pull_policy: missing
+    ports: !override
+      - "127.0.0.1:8317:8317"
+      - "127.0.0.1:8085:8085"
+      - "127.0.0.1:1455:1455"
+      - "127.0.0.1:54545:54545"
+      - "127.0.0.1:51121:51121"
+      - "127.0.0.1:11451:11451"

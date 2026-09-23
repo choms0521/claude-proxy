@@ -5,3 +5,5 @@ config.json
 .omx/
 proxy.log
 proxy.pid
+services/CLIProxyAPI/
+proxy.lock/
