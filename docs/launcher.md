@@ -29,7 +29,8 @@ claude-proxy --resume
 
 Claude Code 실행 직전 환경변수 처리:
 
-- 제거: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. GPT 전용 실행 설정이 전환 가능한 경로에 섞이지 않게 한다.
+- 제거: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`. GPT 전용 실행 설정이 전환 가능한 경로에 섞이지 않게 한다.
+- 설정: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`를 `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` 값(기본 `1000000`)으로 설정한다. Claude Code는 모르는 모델 ID(GPT, MiniMax, Kimi 목록 항목)의 컨텍스트를 200K로 가정하므로 이 값으로 1M까지 쓰게 한다. Claude Code가 아는 Claude 모델에는 적용되지 않는다.
 - 설정: `ANTHROPIC_BASE_URL=http://127.0.0.1:3456`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 ## `/model`의 GPT 모델
@@ -75,6 +76,7 @@ Claude Code 실행 직전 환경변수 처리:
 | `ROUTER_CLIPROXY_BASE_URL` | `http://cli-proxy-api:8317` | 라우터 컨테이너가 CLIProxyAPI에 접속할 주소(compose에서 사용) |
 | `CLAUDE_PROXY_DOCKER_TIMEOUT` | `120` | Docker 엔진 기동 대기 시간(초) |
 | `CLAUDE_PROXY_READY_TIMEOUT` | `60` | CLIProxyAPI와 라우터 준비 대기 시간(초) |
+| `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` | `1000000` | 라우터 목록 모델(GPT, MiniMax, Kimi)에 적용할 컨텍스트 창 크기 |
 | `CLAUDE_PROXY_POLL_INTERVAL` | `1` | 폴링 간격(초) |
 | `DOCKER_BIN`, `CURL_BIN`, `OPEN_BIN`, `NODE_BIN`, `CLAUDE_BIN` | `docker`, `curl`, `open`, `node`, `claude` | 사용할 실행 파일. 테스트에서 스텁으로 바꿔 쓴다. |
 | `JQ_BIN`, `PYTHON_BIN` | `jq`, `python3` | 모델 피커 응답을 검사할 때 쓰는 실행 파일. `jq`를 먼저 쓴다. |

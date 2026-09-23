@@ -85,11 +85,11 @@ out="$STUB_DIR/claude.out"
 echo "ANTHROPIC_BASE_URL=\${ANTHROPIC_BASE_URL-unset}" > "$out"
 echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=\${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC-unset}" >> "$out"
 for name in ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL \\
-  ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL \\
-  CLAUDE_CODE_MAX_CONTEXT_TOKENS; do
+  ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL; do
   eval "v=\\\${$name+set}"
   echo "$name=\${v:-unset}" >> "$out"
 done
+echo "CLAUDE_CODE_MAX_CONTEXT_TOKENS=\${CLAUDE_CODE_MAX_CONTEXT_TOKENS-unset}" >> "$out"
 for arg; do echo "arg:$arg" >> "$out"; done
 exit 0
 `,
@@ -303,7 +303,7 @@ test('clears GPT leftovers, sets the base URL and passes args through', () => {
     'ANTHROPIC_DEFAULT_OPUS_MODEL=unset',
     'ANTHROPIC_DEFAULT_SONNET_MODEL=unset',
     'ANTHROPIC_DEFAULT_HAIKU_MODEL=unset',
-    'CLAUDE_CODE_MAX_CONTEXT_TOKENS=unset',
+    'CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000',
     'arg:--settings',
     `arg:${ctx.pickerFile}`,
     'arg:-p',
@@ -311,6 +311,13 @@ test('clears GPT leftovers, sets the base URL and passes args through', () => {
     'arg:--model',
     'arg:opus',
   ])
+})
+
+test('CLAUDE_PROXY_MAX_CONTEXT_TOKENS overrides the assumed context window', () => {
+  const ctx = setup()
+  const r = run(ctx, [], { CLAUDE_PROXY_MAX_CONTEXT_TOKENS: '500000' })
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(r.claudeOut.includes('CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000'))
 })
 
 test('runs claude with only the injected settings when given no arguments', () => {
