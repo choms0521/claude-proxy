@@ -7,3 +7,4 @@ proxy.log
 proxy.pid
 services/CLIProxyAPI/
 proxy.lock/
+.claude-proxy/

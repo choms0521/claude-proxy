@@ -1,6 +1,6 @@
 # 실행기 `bin/claude-proxy`
 
-`claude-proxy` 명령 하나로 Docker 엔진, CLIProxyAPI, 프록시 라우터를 필요할 때만 구동하고 Claude Code를 라우터에 연결해 실행한다. 백엔드 전환은 실행 후 `/switch-backend`로 한다.
+`claude-proxy` 명령 하나로 Docker 엔진, CLIProxyAPI, 프록시 라우터를 필요할 때만 구동하고 Claude Code를 라우터에 연결해 실행한다. GPT 모델은 `/model` 목록에서 골라 쓰고, `claude-*` 요청 전체를 다른 백엔드로 보낼 때는 `/switch-backend`를 쓴다.
 
 ## 사용법
 
@@ -13,7 +13,7 @@ ln -s "$PWD/bin/claude-proxy" ~/.local/bin/claude-proxy
 claude-proxy --resume
 ```
 
-인자는 모두 그대로 `claude`에 전달된다.
+인자는 모두 그대로 `claude`에 전달된다. 실행기는 그 앞에 `--settings <모델 피커 파일>`을 붙인다(아래 "`/model`의 GPT 모델" 참고).
 
 ## 실행 순서
 
@@ -22,7 +22,8 @@ claude-proxy --resume
 | 1 | Docker 엔진 | `docker info`가 실패하면 `open -a Docker` 후 제한 시간 안에서 폴링한다. |
 | 2 | `cli-proxy-api` 컨테이너 | 실행 중이면 재사용, 멈춰 있으면 `docker start`, 일시 정지면 `docker unpause`, 없을 때만 `docker compose up -d --pull missing --no-recreate --no-deps cli-proxy-api`. compose가 실패해도(예: 다른 실행기가 동시에 만드는 중) 바로 끝내지 않고 준비 대기 결과로 판단한다. 이후 `http://127.0.0.1:8317/`이 HTTP 응답을 줄 때까지 기다린다. |
 | 3 | 라우터 | `http://127.0.0.1:3456/admin/status`가 200이면 모드와 관계없이 재사용한다. 아니면 `CLAUDE_PROXY_MODE`에 따라 기동하고 200이 될 때까지 기다린다. |
-| 4 | Claude Code | 아래 환경변수를 정리한 뒤 `exec claude "$@"`를 실행한다. |
+| 4 | 모델 피커 설정 | `http://127.0.0.1:3456/admin/model-picker` 응답을 `.claude-proxy/model-picker.json`(저장소 루트)에 저장한다. 같은 디렉터리의 임시 파일에 받은 뒤 `mv`로 바꿔 넣으므로 동시에 실행해도 반쯤 쓰인 파일을 읽지 않는다. |
+| 5 | Claude Code | 아래 환경변수를 정리한 뒤 `exec claude --settings <모델 피커 파일> "$@"`를 실행한다. |
 
 매 실행마다 이미지 build, pull, 컨테이너 재생성을 하지 않는다. 실행기가 종료되어도 컨테이너와 라우터는 계속 실행된다.
 
@@ -30,6 +31,20 @@ Claude Code 실행 직전 환경변수 처리:
 
 - 제거: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. GPT 전용 실행 설정이 전환 가능한 경로에 섞이지 않게 한다.
 - 설정: `ANTHROPIC_BASE_URL=http://127.0.0.1:3456`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+
+## `/model`의 GPT 모델
+
+라우터의 `/admin/model-picker`는 사용 가능한 백엔드의 `models`로 Claude Code `modelPicker` 설정을 만든다. 실행기가 이 설정을 `--settings`로 넘기므로 `/model` 목록의 기본 모델 아래에 `GPT-6 Astra`, `GPT-5.5` 같은 행이 추가된다.
+
+- 행을 고른 뒤 **`s`를 누른다.** 이 세션에만 적용된다. Enter를 누르면 모든 세션의 기본 모델로 저장되어, 라우터를 거치지 않는 일반 `claude`까지 GPT 모델 ID로 요청하게 되고 실패한다. 각 행 설명에도 이 안내가 들어 있다.
+- GPT 모델을 고르면 그 세션의 요청이 자동으로 GPT 백엔드로 간다. 라우터가 요청 body의 `model`을 보고 백엔드를 고르기 때문이며, `/switch-backend`로 전역 백엔드를 바꿀 필요가 없다.
+- Claude Code가 백그라운드로 보내는 Haiku 요청(`claude-haiku-*`)은 `models`에 없으므로 활성 백엔드(기본값 Claude)로 간다.
+- `/switch-backend`는 그대로 남는다. `claude-*` 요청 전체를 minimax, kimi 같은 백엔드로 전역 전환할 때 쓴다.
+
+예외:
+
+- 사용자가 `--settings`(또는 `--settings=<파일>`)를 직접 넘기면 여러 `--settings`가 합쳐지지 않을 수 있으므로 경고만 출력하고 모델 피커 설정을 넣지 않는다.
+- 응답을 받지 못하면(예: 이 엔드포인트가 없는 이전 라우터가 떠 있을 때 404) 경고를 출력하고 `--settings` 없이 실행한다. 이전 라우터를 쓰는 중이면 라우터를 다시 시작해야 GPT 행이 나타난다.
 
 ## 라우터 모드
 
@@ -108,4 +123,4 @@ docker compose up -d --force-recreate --no-deps router
 node --test test/launcher.test.js
 ```
 
-스텁 `docker`, `curl`, `open`, `node`, `claude`를 임시 디렉터리에 두고 실행하므로 실제 Docker와 네트워크에 접근하지 않는다.
+스텁 `docker`, `curl`, `open`, `node`, `claude`를 임시 디렉터리에 두고 실행하므로 실제 Docker와 네트워크에 접근하지 않는다. `/admin/model-picker` 응답도 스텁 `curl`이 돌려준다.

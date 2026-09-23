@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -51,10 +52,20 @@ case "$1" in
 esac
 `,
   curl: `#!/bin/sh
-for url; do :; done
+out=""
+prev=""
+for url; do
+  [ "$prev" = "-o" ] && out="$url"
+  prev="$url"
+done
 case "$url" in
   *:8317*) f="$STUB_DIR/code_cliproxy" ;;
   */admin/status) f="$STUB_DIR/code_router" ;;
+  */admin/model-picker)
+    echo "fetch-model-picker $url" >> "$STUB_DIR/calls.log"
+    [ -f "$STUB_DIR/model_picker" ] || exit 22
+    cat "$STUB_DIR/model_picker" > "$out"
+    exit 0 ;;
 esac
 if [ -n "$f" ] && [ -f "$f" ]; then tr -d '\\n' < "$f"; exit 0; fi
 printf 000
@@ -101,7 +112,25 @@ afterEach(() => {
   while (spawnedPids.length > 0) killTree(spawnedPids.pop())
 })
 
-function setup({ engineUp = true, cliproxy = 'running', router = 'running', routerCode = '200' } = {}) {
+const MODEL_PICKER = JSON.stringify({
+  modelPicker: {
+    options: [
+      {
+        model: 'gpt-6-astra',
+        label: 'GPT-6 Astra',
+        description: 'GPT (CLIProxyAPI) · press s to use for this session only',
+      },
+    ],
+  },
+})
+
+function setup({
+  engineUp = true,
+  cliproxy = 'running',
+  router = 'running',
+  routerCode = '200',
+  modelPicker = MODEL_PICKER,
+} = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'claude-proxy-launcher-')))
   tempDirs.push(base)
   const repo = join(base, 'repo')
@@ -130,6 +159,7 @@ function setup({ engineUp = true, cliproxy = 'running', router = 'running', rout
   }
   if (router) writeFileSync(join(state, 'container_claude-proxy-router'), `${router}\n`)
   if (routerCode) writeFileSync(join(state, 'code_router'), routerCode)
+  if (modelPicker) writeFileSync(join(state, 'model_picker'), modelPicker)
 
   const env = {
     PATH: `${stubs}:/usr/bin:/bin`,
@@ -145,7 +175,8 @@ function setup({ engineUp = true, cliproxy = 'running', router = 'running', rout
     CLAUDE_PROXY_DOCKER_TIMEOUT: '5',
     CLAUDE_PROXY_READY_TIMEOUT: '5',
   }
-  return { base, repo, state, env, link: join(base, 'link', 'claude-proxy') }
+  const pickerFile = join(repo, '.claude-proxy', 'model-picker.json')
+  return { base, repo, state, env, pickerFile, link: join(base, 'link', 'claude-proxy') }
 }
 
 function run(ctx, args = [], extraEnv = {}) {
@@ -273,6 +304,8 @@ test('clears GPT leftovers, sets the base URL and passes args through', () => {
     'ANTHROPIC_DEFAULT_SONNET_MODEL=unset',
     'ANTHROPIC_DEFAULT_HAIKU_MODEL=unset',
     'CLAUDE_CODE_MAX_CONTEXT_TOKENS=unset',
+    'arg:--settings',
+    `arg:${ctx.pickerFile}`,
     'arg:-p',
     'arg:hello world',
     'arg:--model',
@@ -280,11 +313,65 @@ test('clears GPT leftovers, sets the base URL and passes args through', () => {
   ])
 })
 
-test('runs claude with no arguments', () => {
+test('runs claude with only the injected settings when given no arguments', () => {
   const ctx = setup()
   const r = run(ctx)
   assert.equal(r.status, 0, r.stderr)
-  assert.ok(!r.claudeOut.some((line) => line.startsWith('arg:')))
+  assert.deepEqual(
+    r.claudeOut.filter((line) => line.startsWith('arg:')),
+    ['arg:--settings', `arg:${ctx.pickerFile}`]
+  )
+})
+
+test('writes the router model picker response to the settings file', () => {
+  const ctx = setup()
+  const r = run(ctx)
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(r.calls.includes('fetch-model-picker http://127.0.0.1:3456/admin/model-picker'))
+  assert.equal(readFileSync(ctx.pickerFile, 'utf-8'), MODEL_PICKER)
+  assert.deepEqual(readdirSync(join(ctx.repo, '.claude-proxy')), ['model-picker.json'])
+})
+
+test('replaces a previous settings file with the fresh router response', () => {
+  const ctx = setup()
+  mkdirSync(join(ctx.repo, '.claude-proxy'))
+  writeFileSync(ctx.pickerFile, '{"modelPicker":{"options":[]}}')
+  const r = run(ctx)
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(readFileSync(ctx.pickerFile, 'utf-8'), MODEL_PICKER)
+})
+
+test('launches without settings when the model picker fetch fails', () => {
+  const ctx = setup({ modelPicker: null })
+  const r = run(ctx, ['--resume'])
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /warning: could not fetch .*\/admin\/model-picker/)
+  assert.deepEqual(r.claudeOut.filter((line) => line.startsWith('arg:')), ['arg:--resume'])
+  assert.deepEqual(readdirSync(join(ctx.repo, '.claude-proxy')), [])
+})
+
+test('skips settings injection when the user passes --settings', () => {
+  const ctx = setup()
+  const r = run(ctx, ['--settings', '/tmp/mine.json', '-p', 'hi'])
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /warning: --settings was given/)
+  assert.ok(!r.calls.some((c) => c.startsWith('fetch-model-picker')))
+  assert.deepEqual(r.claudeOut.filter((line) => line.startsWith('arg:')), [
+    'arg:--settings',
+    'arg:/tmp/mine.json',
+    'arg:-p',
+    'arg:hi',
+  ])
+})
+
+test('skips settings injection when the user passes --settings=<file>', () => {
+  const ctx = setup()
+  const r = run(ctx, ['--settings=/tmp/mine.json'])
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /warning: --settings was given/)
+  assert.deepEqual(r.claudeOut.filter((line) => line.startsWith('arg:')), [
+    'arg:--settings=/tmp/mine.json',
+  ])
 })
 
 test('local mode starts node in the background and replaces a stale pid file', () => {

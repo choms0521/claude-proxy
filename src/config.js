@@ -33,7 +33,29 @@ function resolveEnvVars(value) {
   return resolved
 }
 
-function resolveBackend(backend) {
+function normalizeModel(backendId, model, index) {
+  if (!model || typeof model.id !== 'string' || model.id === '') {
+    throw new Error(`Backend "${backendId}": models[${index}] needs a non-empty string "id"`)
+  }
+  return Object.freeze({
+    id: model.id,
+    label: typeof model.label === 'string' && model.label ? model.label : model.id,
+    ...(typeof model.description === 'string' ? { description: model.description } : {}),
+  })
+}
+
+// `models` lists upstream model ids that are routed to this backend by the
+// request body `model` field and offered in the Claude Code /model picker.
+function normalizeModels(backendId, models) {
+  if (models === undefined) return Object.freeze([])
+  if (!Array.isArray(models)) {
+    throw new Error(`Backend "${backendId}": "models" must be an array`)
+  }
+  return Object.freeze(models.map((model, index) => normalizeModel(backendId, model, index)))
+}
+
+function resolveBackend(id, rawBackend) {
+  const backend = { ...rawBackend, models: normalizeModels(id, rawBackend.models) }
   try {
     return Object.freeze({
       ...backend,
@@ -55,7 +77,7 @@ function resolveBackend(backend) {
 
 function resolveBackends(backends) {
   return Object.fromEntries(
-    Object.entries(backends).map(([id, backend]) => [id, resolveBackend(backend)])
+    Object.entries(backends).map(([id, backend]) => [id, resolveBackend(id, backend)])
   )
 }
 

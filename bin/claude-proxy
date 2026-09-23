@@ -40,6 +40,8 @@ ROOT="$(resolve_root)"
 PID_FILE="$ROOT/proxy.pid"
 LOG_FILE="$ROOT/proxy.log"
 LOCK_DIR="$ROOT/proxy.lock"
+PICKER_DIR="$ROOT/.claude-proxy"
+PICKER_FILE="$PICKER_DIR/model-picker.json"
 STARTED_PID=""
 
 # Prints the HTTP status code for a URL, or 000 when nothing answers.
@@ -219,6 +221,30 @@ ensure_router() {
     || die "router did not become healthy at $ROUTER_URL/admin/status within ${READY_TIMEOUT}s. Check: $DOCKER_BIN logs $ROUTER_CONTAINER"
 }
 
+has_settings_arg() {
+  local arg
+  for arg; do
+    case "$arg" in --settings|--settings=*) return 0 ;; esac
+  done
+  return 1
+}
+
+# Saves the router's /model picker settings to PICKER_FILE. The response is
+# written to a temp file in the same directory and renamed, so concurrent
+# launchers never read a partial file.
+fetch_model_picker() {
+  local tmp
+  mkdir -p "$PICKER_DIR" 2>/dev/null || return 1
+  tmp="$(mktemp "$PICKER_DIR/model-picker.XXXXXX" 2>/dev/null)" || return 1
+  if "$CURL_BIN" -fsS -m 5 -o "$tmp" "$ROUTER_URL/admin/model-picker" 2>/dev/null \
+    && grep -q '"modelPicker"' "$tmp" \
+    && mv -f "$tmp" "$PICKER_FILE"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
 exec_claude() {
   # Model and token overrides from other launchers (for example a GPT-only
   # alias) must not leak into the switchable router path.
@@ -227,6 +253,14 @@ exec_claude() {
     CLAUDE_CODE_MAX_CONTEXT_TOKENS
   export ANTHROPIC_BASE_URL="$ROUTER_URL"
   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  # Multiple --settings flags may not merge, so a user-supplied one wins.
+  if has_settings_arg "$@"; then
+    log "warning: --settings was given; not adding the router model picker settings"
+  elif fetch_model_picker; then
+    set -- --settings "$PICKER_FILE" "$@"
+  else
+    log "warning: could not fetch $ROUTER_URL/admin/model-picker; launching without router models in /model"
+  fi
   exec "$CLAUDE_BIN" "$@"
 }
 

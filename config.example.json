@@ -17,7 +17,11 @@
     "gpt": {
       "name": "GPT (CLIProxyAPI)",
       "baseUrl": "${CLIPROXY_BASE_URL:-http://127.0.0.1:8317}",
-      "apiKey": "${CLIPROXY_KEY}"
+      "apiKey": "${CLIPROXY_KEY}",
+      "models": [
+        { "id": "gpt-6-astra", "label": "GPT-6 Astra" },
+        { "id": "gpt-5.5", "label": "GPT-5.5" }
+      ]
     }
   }
 }

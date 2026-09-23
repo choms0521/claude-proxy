@@ -53,3 +53,59 @@ test('PROXY_HOST environment variable overrides the config file', () => {
 
   assert.equal(config.host, '0.0.0.0')
 })
+
+test('backend models default to an empty list', () => {
+  const config = loadConfig(writeConfig())
+
+  assert.deepEqual(config.backends.claude.models, [])
+})
+
+test('backend models keep id, label and description', () => {
+  const config = loadConfig(
+    writeConfig({
+      backends: {
+        claude: { name: 'Claude', baseUrl: 'https://api.anthropic.com', apiKey: null },
+        gpt: {
+          name: 'GPT',
+          baseUrl: 'http://127.0.0.1:8317',
+          apiKey: null,
+          models: [
+            { id: 'gpt-6-astra', label: 'GPT-6 Astra', description: 'Frontier' },
+            { id: 'gpt-5.5' },
+          ],
+        },
+      },
+    })
+  )
+
+  assert.deepEqual(config.backends.gpt.models, [
+    { id: 'gpt-6-astra', label: 'GPT-6 Astra', description: 'Frontier' },
+    { id: 'gpt-5.5', label: 'gpt-5.5' },
+  ])
+  assert.ok(Object.isFrozen(config.backends.gpt.models))
+})
+
+test('a model entry without a string id fails with a clear message', () => {
+  const path = writeConfig({
+    backends: {
+      claude: {
+        name: 'Claude',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: null,
+        models: [{ label: 'No id' }],
+      },
+    },
+  })
+
+  assert.throws(() => loadConfig(path), /Backend "claude": models\[0\] needs a non-empty string "id"/)
+})
+
+test('models that are not an array fail with a clear message', () => {
+  const path = writeConfig({
+    backends: {
+      claude: { name: 'Claude', baseUrl: 'https://api.anthropic.com', apiKey: null, models: 'gpt-5.5' },
+    },
+  })
+
+  assert.throws(() => loadConfig(path), /Backend "claude": "models" must be an array/)
+})
