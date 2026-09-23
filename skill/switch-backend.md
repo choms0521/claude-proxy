@@ -1,21 +1,21 @@
 ---
 name: switch-backend
 description: Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다.
-argument-hint: "[status|claude|minimax]"
+argument-hint: "[status|claude|minimax|kimi]"
 ---
 
-Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다. $ARGUMENTS: [status|claude|minimax]
+Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다. $ARGUMENTS: [status|claude|minimax|kimi]
 
 ## 동작
 
 1. 먼저 항상 `curl -s http://localhost:3456/admin/status`를 실행하여 현재 상태를 가져온다.
-2. 결과를 아래 형식으로 보여준다:
+2. 응답의 `data.availableBackends` 배열을 순서대로 읽어 아래 형식으로 보여준다. 백엔드 목록은 config.json에서 동적으로 생성되므로 고정 목록을 쓰지 않는다. 각 항목의 `active`가 `true`이면 `[활성]`, 아니면 `[비활성]`으로 표시한다(예시는 claude가 활성인 경우):
 
 ```
-현재 백엔드: [활성 백엔드 이름]
+현재 백엔드: [data.activeBackendName]
 
 가용 백엔드:
-  [활성] claude - Claude API
+  [활성]   claude - Claude API
   [비활성] minimax - MiniMax API
 ```
 
