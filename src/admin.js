@@ -11,6 +11,8 @@ export function handleStatus(state) {
         id,
         name: b.name,
         active: id === state.activeBackend,
+        available: b.available,
+        ...(b.available ? {} : { unavailableReason: b.unavailableReason }),
       })),
     },
   }

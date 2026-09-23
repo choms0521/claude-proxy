@@ -13,6 +13,11 @@
       "baseUrl": "https://api.minimax.io/anthropic",
       "apiKey": "${YOUR_MINIMAX_API_KEY}",
       "modelMapping": "MiniMax-M2.7"
+    },
+    "gpt": {
+      "name": "GPT (CLIProxyAPI)",
+      "baseUrl": "${CLIPROXY_BASE_URL:-http://127.0.0.1:8317}",
+      "apiKey": "${CLIPROXY_KEY}"
     }
   }
 }

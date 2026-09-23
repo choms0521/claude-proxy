@@ -7,6 +7,7 @@ Claude Code 세션 중간에 Anthropic 호환 API 백엔드를 실시간 전환�
 
 ```
 Claude Code  -->  Proxy (localhost:3456)  -->  Claude API (api.anthropic.com)
+                       |                 -->  GPT (CLIProxyAPI, 127.0.0.1:8317)
                        |                 -->  MiniMax API (api.minimax.io/anthropic)
                        |
                   /admin/switch 로
@@ -41,6 +42,10 @@ cd claude-proxy
 ```bash
 # MiniMax API 키
 export MINIMAX_API_KEY=your-minimax-api-key
+
+# GPT 백엔드(CLIProxyAPI) 키와 접속 주소. CLIPROXY_BASE_URL은 생략 시 http://127.0.0.1:8317 사용
+export CLIPROXY_KEY=your-cliproxyapi-key
+export CLIPROXY_BASE_URL=http://127.0.0.1:8317
 
 # Proxy URL
 export CLAUDE_PROXY_URL=http://localhost:3456
@@ -79,6 +84,7 @@ Claude Code 안에서 `/switch-backend` 스킬 사용:
 
 ```
 /switch-backend           # 현재 상태 + 가용 백엔드 목록
+/switch-backend gpt       # GPT(CLIProxyAPI)로 전환
 /switch-backend minimax   # MiniMax로 전환
 /switch-backend claude    # Claude로 복귀
 ```
@@ -121,6 +127,11 @@ curl -s http://localhost:3456/admin/status | jq .
       "baseUrl": "https://api.minimax.io/anthropic",
       "apiKey": "${MINIMAX_API_KEY}",
       "modelMapping": "MiniMax-M2.7"
+    },
+    "gpt": {
+      "name": "GPT (CLIProxyAPI)",
+      "baseUrl": "${CLIPROXY_BASE_URL:-http://127.0.0.1:8317}",
+      "apiKey": "${CLIPROXY_KEY}"
     }
   }
 }
@@ -135,6 +146,17 @@ curl -s http://localhost:3456/admin/status | jq .
 | `apiKey` | O | API 키. `null`이면 클라이언트가 보낸 원본 키 패스스루(단, `forwardClientAuth`가 `true`인 백엔드에서만). `${ENV_VAR}` 형식으로 환경변수 참조 가능 |
 | `modelMapping` | X | 설정 시 요청 body의 `model` 필드를 이 값으로 교체. Claude Code가 보내는 `claude-opus-4-6` 등을 백엔드에 맞게 변환 |
 | `forwardClientAuth` | X | `true`이면 클라이언트가 보낸 인증 헤더(`authorization`, `x-api-key`, `proxy-authorization`, `cookie`)를 그대로 백엔드에 전달. 기본값은 `false`이며, 이 경우 위 헤더를 모두 제거한 뒤 `apiKey`가 있으면 `x-api-key`로 주입. 실제 Claude API 백엔드에만 `true`를 설정해 Claude Code의 OAuth 토큰이 제3자 백엔드로 유출되지 않도록 한다 |
+
+### 환경변수 치환과 관용적 가용성 판정
+
+`baseUrl`, `apiKey` 값에는 `${VAR}`와 `${VAR:-default}` 두 형식을 쓸 수 있다.
+
+- `${VAR}`: 환경변수 `VAR`의 값을 그대로 사용. `VAR`이 설정되지 않으면 해당 백엔드만 사용 불가로 표시된다.
+- `${VAR:-default}`: `VAR`이 설정되어 있으면 그 값을, 없으면 `default`를 사용. `gpt` 백엔드의 `baseUrl`이 이 형식을 쓴다.
+
+필수 환경변수가 없다고 해서 라우터 전체가 기동에 실패하지는 않는다(관용적 평가: 설정 로딩 시점에 백엔드별로 판정하며, 실패한 백엔드만 사용 불가로 표시하고 나머지는 정상 동작). 대신 그 백엔드는 `/admin/status`에서 `available: false`와 `unavailableReason`으로 표시되고, `/admin/switch`가 해당 백엔드로의 전환을 거부한다. 단, `config.json`의 기본 `activeBackend` 자체가 사용 불가 상태이면 그때는 라우터 기동이 명확한 오류 메시지와 함께 실패한다. `unavailableReason`에는 환경변수 이름만 담기며 실제 키 값은 절대 포함되지 않는다. 빈 문자열(`""`)로 설정된 환경변수는 미설정과 동일하게 취급한다(셸의 `${VAR:-default}` 관례와 동일).
+
+`gpt` 백엔드(CLIProxyAPI 연동)는 `CLIPROXY_KEY` 환경변수가 설정되어 있어야 사용 가능하다. `CLIPROXY_BASE_URL`은 생략하면 `http://127.0.0.1:8317`을 기본값으로 쓴다. `modelMapping`을 지정하지 않으므로 Claude Code가 보내는 `claude-*` 모델 ID가 그대로 전달되며, 티어별 매핑은 CLIProxyAPI 쪽 alias 설정이 담당한다. `forwardClientAuth`도 지정하지 않아 Claude OAuth 토큰이 전달되지 않고, 라우터가 주입하는 `x-api-key`만 CLIProxyAPI로 전달된다.
 
 ### 새 백엔드 추가
 
@@ -171,12 +193,12 @@ claude-proxy/
 
 | 엔드포인트 | 메서드 | 요청 | 응답 |
 |-----------|--------|------|------|
-| `/admin/status` | GET | - | `{activeBackend, availableBackends[]}` |
+| `/admin/status` | GET | - | `{activeBackend, availableBackends[]}` (각 항목에 `available`, 비가용 시 `unavailableReason` 포함) |
 | `/admin/switch` | POST | `{"backend":"minimax"}` | `{activeBackend, previousBackend, changed}` |
 
 ## 주의사항
 
-- Proxy 재시작 시 activeBackend는 `config.json`의 기본값(`claude`)으로 초기화됨
+- 백엔드 전환은 라우터 프로세스 전체에 전역으로 적용됨(세션별 분리 없음). Proxy 재시작 시 activeBackend는 `config.json`의 기본값(`claude`)으로 초기화됨
 - 백엔드 전환 중 진행 중인 요청은 전환 전 백엔드로 완료됨 (race condition 안전)
 - thinking 블록 제거는 `/messages` 엔드포인트에서만 동작
 - Claude 백엔드는 `apiKey: null` 설정으로 Claude Code의 원래 인증을 패스스루
