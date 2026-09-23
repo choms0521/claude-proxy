@@ -101,12 +101,14 @@
 | 2026-09-23 | 2단계 | `93898f7` gpt 백엔드 추가, `${VAR:-default}` 지원, 환경변수 누락 백엔드는 사용 불가로 표시 |
 | 2026-09-23 | 3·4단계 | `63e4764` 실행기, 라우터 Dockerfile, 상위 compose. 코드 리뷰 HIGH(로컬 라우터 분리) 등 반영 |
 | 2026-09-23 | 3단계 후속 | `~/.zshrc`의 `claude-proxy` alias를 `CLAUDE_PROXY_MODE=local` 실행기로 교체(백업 `~/.zshrc.bak-20260923-153435`) |
+| 2026-09-23 | 모델 목록 | `a140068` 요청 모델 기준 라우팅과 `/model` 목록 주입, `469bae9` GPT 7종, `d1518d3` Origin·Host·Content-Type 검사와 목록 allowlist, MiniMax M3·Kimi K3 목록 추가 |
 
 ### 남은 확인 사항
 
 - 실제 모델 호출로 claude → gpt → claude 왕복과 tool history 확인.
 - 5단계 이전 후 컨테이너 모드 실구동 확인, 이후 alias에서 `CLAUDE_PROXY_MODE=local` 제거.
-- `settings.json`의 사용자 지정 모델 `claude-opus-4-8`은 CLIProxyAPI alias에 없어 gpt 백엔드에서 사용할 수 없다.
+- `/model`에서 Enter로 GPT·MiniMax·Kimi 모델을 고르면 사용자 기본 모델로 저장되어 일반 `claude`가 실패한다. `s`(이 세션만)를 쓴다. 불편하면 `ConfigChange` hook으로 되돌리는 방안을 검토한다.
+- minimax·kimi가 `x-api-key`만으로 인증되는지 실호출 확인.
 
 ### 보류 항목 (보안 검토 LOW)
 

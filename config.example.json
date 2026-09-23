@@ -12,7 +12,13 @@
       "name": "MiniMax API",
       "baseUrl": "https://api.minimax.io/anthropic",
       "apiKey": "${YOUR_MINIMAX_API_KEY}",
-      "modelMapping": "MiniMax-M2.7"
+      "modelMapping": "MiniMax-M2.7",
+      "models": [
+        {
+          "id": "MiniMax-M3",
+          "label": "MiniMax M3"
+        }
+      ]
     },
     "gpt": {
       "name": "GPT (CLIProxyAPI)",
