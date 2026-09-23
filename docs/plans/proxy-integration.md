@@ -98,6 +98,15 @@
 | 2026-09-23 | 1단계 | `76090a8` 인증 헤더 분리. 보안 검토에서 우회 경로 없음 확인 |
 | 2026-09-23 | 1단계 후속 | `9c188e6` 라우터 기본 수신 주소를 127.0.0.1로 변경, `/admin/switch`에 Origin 거부와 JSON Content-Type 요구(보안 검토 HIGH·MEDIUM) |
 | 2026-09-23 | 2단계 일부 | CLIProxyAPI `config.yaml`에 `claude-opus-5-5 -> gpt-6-astra` alias 추가(백업 `config.yaml.bak-20260923-150756`), 핫 리로드 확인 |
+| 2026-09-23 | 2단계 | `93898f7` gpt 백엔드 추가, `${VAR:-default}` 지원, 환경변수 누락 백엔드는 사용 불가로 표시 |
+| 2026-09-23 | 3·4단계 | `63e4764` 실행기, 라우터 Dockerfile, 상위 compose. 코드 리뷰 HIGH(로컬 라우터 분리) 등 반영 |
+| 2026-09-23 | 3단계 후속 | `~/.zshrc`의 `claude-proxy` alias를 `CLAUDE_PROXY_MODE=local` 실행기로 교체(백업 `~/.zshrc.bak-20260923-153435`) |
+
+### 남은 확인 사항
+
+- 실제 모델 호출로 claude → gpt → claude 왕복과 tool history 확인.
+- 5단계 이전 후 컨테이너 모드 실구동 확인, 이후 alias에서 `CLAUDE_PROXY_MODE=local` 제거.
+- `settings.json`의 사용자 지정 모델 `claude-opus-4-8`은 CLIProxyAPI alias에 없어 gpt 백엔드에서 사용할 수 없다.
 
 ### 보류 항목 (보안 검토 LOW)
 
