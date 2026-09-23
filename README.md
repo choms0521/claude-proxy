@@ -97,6 +97,12 @@ curl -s http://localhost:3456/admin/status | jq .
 
 > 전환은 **다음 턴**부터 적용된다. 현재 턴은 기존 모델이 응답.
 
+> `/admin/switch`는 `Content-Type: application/json` 요청만 받고, `Origin` 헤더가 있는 요청(브라우저에서 보낸 요청)은 403으로 거부한다.
+
+### 수신 주소
+
+라우터는 기본적으로 `127.0.0.1`에서만 수신한다. 컨테이너 안에서 실행할 때처럼 다른 주소가 필요하면 `PROXY_HOST` 환경변수나 `config.json`의 `host` 필드로 바꾼다(환경변수가 우선).
+
 ## 백엔드 설정 (config.json)
 
 ```json

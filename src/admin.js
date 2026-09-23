@@ -16,6 +16,19 @@ export function handleStatus(state) {
   }
 }
 
+// Rejects requests a browser page could forge: cross-origin fetches carry an
+// Origin header, and simple (preflight-free) requests cannot set a JSON content type.
+export function validateSwitchRequest(headers) {
+  if (headers.origin) {
+    return { status: 403, error: 'Cross-origin admin requests are not allowed' }
+  }
+  const contentType = (headers['content-type'] || '').split(';')[0].trim().toLowerCase()
+  if (contentType !== 'application/json') {
+    return { status: 415, error: 'Content-Type must be application/json' }
+  }
+  return null
+}
+
 export async function handleSwitch(req, state) {
   const body = await readBody(req)
   let parsed
@@ -64,6 +77,11 @@ export async function handleAdmin(req, res, state) {
   }
 
   if (method === 'POST' && url === '/admin/switch') {
+    const rejection = validateSwitchRequest(req.headers)
+    if (rejection) {
+      sendJson(res, rejection.status, { success: false, error: rejection.error })
+      return { newState: null }
+    }
     const { result, newState } = await handleSwitch(req, state)
     const statusCode = result.success ? 200 : 400
     sendJson(res, statusCode, result)

@@ -33,6 +33,7 @@ export function loadConfig(configPath) {
   const raw = JSON.parse(readFileSync(fullPath, 'utf-8'))
 
   return Object.freeze({
+    host: process.env.PROXY_HOST || raw.host || '127.0.0.1',
     port: raw.port || 3456,
     activeBackend: raw.activeBackend || 'claude',
     backends: Object.freeze(resolveBackends(raw.backends)),
