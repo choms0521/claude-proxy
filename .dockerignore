@@ -1,0 +1,4 @@
+# Allowlist: the image only needs package.json and src/.
+*
+!package.json
+!src/

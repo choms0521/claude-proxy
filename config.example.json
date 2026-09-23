@@ -5,13 +5,62 @@
     "claude": {
       "name": "Claude API",
       "baseUrl": "https://api.anthropic.com",
-      "apiKey": null
+      "apiKey": null,
+      "forwardClientAuth": true
+    },
+    "gpt": {
+      "name": "GPT (CLIProxyAPI)",
+      "baseUrl": "${CLIPROXY_BASE_URL:-http://127.0.0.1:8317}",
+      "apiKey": "${CLIPROXY_KEY}",
+      "models": [
+        {
+          "id": "gpt-6-astra",
+          "label": "GPT-6 Astra",
+          "description": "Frontier intelligence for the most demanding work"
+        },
+        {
+          "id": "gpt-6-sol",
+          "label": "GPT-6 Sol",
+          "description": "Workhorse model for coding and everyday work"
+        },
+        {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna",
+          "description": "Fast and affordable model for easier tasks"
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "description": "Older coding model for complex work"
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "description": "Older balanced model for straightforward work"
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "description": "Older fast and efficient model"
+        },
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "description": "Previous-generation model"
+        }
+      ]
     },
     "minimax": {
       "name": "MiniMax API",
       "baseUrl": "https://api.minimax.io/anthropic",
       "apiKey": "${YOUR_MINIMAX_API_KEY}",
-      "modelMapping": "MiniMax-M2.7"
+      "modelMapping": "MiniMax-M2.7",
+      "models": [
+        {
+          "id": "MiniMax-M3",
+          "label": "MiniMax M3"
+        }
+      ]
     }
   }
 }

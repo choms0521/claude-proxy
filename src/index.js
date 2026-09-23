@@ -7,8 +7,8 @@ try {
   const active = getActiveBackend(config)
   const server = createServer(config)
 
-  server.listen(config.port, () => {
-    log('info', `Proxy router started on port ${config.port}`)
+  server.listen(config.port, config.host, () => {
+    log('info', `Proxy router started on ${config.host}:${config.port}`)
     log('info', `Active backend: ${active.name} (${active.id})`)
     log('info', `Available backends: ${Object.keys(config.backends).join(', ')}`)
     console.log(`\n🚀 Proxy ready at http://localhost:${config.port}`)

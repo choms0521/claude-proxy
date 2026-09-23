@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# claude-proxy: start (or reuse) Docker, CLIProxyAPI and the proxy router,
+# then exec Claude Code pointed at the router. Services keep running after
+# Claude Code exits. See docs/launcher.md.
+set -euo pipefail
+
+DOCKER_BIN="${DOCKER_BIN:-docker}"
+CURL_BIN="${CURL_BIN:-curl}"
+OPEN_BIN="${OPEN_BIN:-open}"
+NODE_BIN="${NODE_BIN:-node}"
+CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+JQ_BIN="${JQ_BIN:-jq}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+MODE="${CLAUDE_PROXY_MODE:-container}"
+ROUTER_URL="${CLAUDE_PROXY_ROUTER_URL:-http://127.0.0.1:3456}"
+CLIPROXY_URL="${CLIPROXY_HEALTH_URL:-http://127.0.0.1:8317/}"
+MAX_CONTEXT_TOKENS="${CLAUDE_PROXY_MAX_CONTEXT_TOKENS:-1000000}"
+DOCKER_TIMEOUT="${CLAUDE_PROXY_DOCKER_TIMEOUT:-120}"
+READY_TIMEOUT="${CLAUDE_PROXY_READY_TIMEOUT:-60}"
+POLL_INTERVAL="${CLAUDE_PROXY_POLL_INTERVAL:-1}"
+
+CLIPROXY_CONTAINER="cli-proxy-api"
+ROUTER_CONTAINER="claude-proxy-router"
+
+log() { printf 'claude-proxy: %s\n' "$*" >&2; }
+die() { printf 'claude-proxy: error: %s\n' "$*" >&2; exit 1; }
+
+# Resolve the repository root from the script's real path, following
+# symlinks (for example ~/.local/bin/claude-proxy -> <repo>/bin/claude-proxy).
+resolve_root() {
+  local src="${BASH_SOURCE[0]}" dir
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  cd -P "$dir/.." && pwd
+}
+
+ROOT="$(resolve_root)"
+PID_FILE="$ROOT/proxy.pid"
+LOG_FILE="$ROOT/proxy.log"
+LOCK_DIR="$ROOT/proxy.lock"
+PICKER_DIR="$ROOT/.claude-proxy"
+PICKER_FILE="$PICKER_DIR/model-picker.json"
+STARTED_PID=""
+
+# Prints the HTTP status code for a URL, or 000 when nothing answers.
+http_code() {
+  local code
+  code="$("$CURL_BIN" -s -o /dev/null -m 2 -w '%{http_code}' "$1" 2>/dev/null)" || true
+  printf '%s' "${code:-000}"
+}
+
+http_answers() { [ "$(http_code "$1")" != "000" ]; }
+router_healthy() { [ "$(http_code "$ROUTER_URL/admin/status")" = "200" ]; }
+
+# wait_for <description> <timeout-seconds> <command...>
+wait_for() {
+  local what="$1" timeout="$2" deadline
+  shift 2
+  deadline=$((SECONDS + timeout))
+  until "$@"; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      return 1
+    fi
+    sleep "$POLL_INTERVAL"
+  done
+  log "$what is ready"
+}
+
+docker_up() { "$DOCKER_BIN" info >/dev/null 2>&1; }
+
+ensure_docker() {
+  docker_up && return 0
+  log "Docker engine is not running; starting Docker Desktop"
+  "$OPEN_BIN" -a Docker >/dev/null 2>&1 \
+    || die "could not run '$OPEN_BIN -a Docker'. Start the Docker engine manually and retry."
+  wait_for "Docker engine" "$DOCKER_TIMEOUT" docker_up \
+    || die "Docker engine did not start within ${DOCKER_TIMEOUT}s. Check Docker Desktop and retry."
+}
+
+# Prints the container state (running, exited, ...) or nothing if missing.
+container_state() {
+  "$DOCKER_BIN" inspect --type container -f '{{.State.Status}}' "$1" 2>/dev/null || true
+}
+
+# Fails with a clear message when the included CLIProxyAPI compose project
+# cannot be found (compose.yaml would otherwise fail with a raw stat error).
+check_compose_include() {
+  local dir="${CLIPROXY_DIR:-services/CLIProxyAPI}"
+  case "$dir" in /*) ;; *) dir="$ROOT/$dir" ;; esac
+  if [ ! -f "$dir/docker-compose.yml" ] || [ ! -f "$dir/.env" ]; then
+    die "CLIProxyAPI compose project not found at $dir (needs docker-compose.yml and .env).
+  Set CLIPROXY_DIR to the CLIProxyAPI checkout, or use CLAUDE_PROXY_MODE=local for the router."
+  fi
+}
+
+compose_up() {
+  check_compose_include
+  (cd "$ROOT" && "$DOCKER_BIN" compose -f "$ROOT/compose.yaml" \
+    up -d --pull missing --no-recreate "$@")
+}
+
+# start_container <name> <compose-service>: reuse, start, or create.
+start_container() {
+  local name="$1" service="$2" state
+  state="$(container_state "$name")"
+  case "$state" in
+    running|restarting)
+      log "reusing running container $name" ;;
+    paused)
+      log "unpausing container $name"
+      "$DOCKER_BIN" unpause "$name" >/dev/null || die "docker unpause $name failed" ;;
+    "")
+      log "container $name not found; creating it with docker compose"
+      if [ "$service" = router ] && [ -z "${CLIPROXY_KEY:-}" ]; then
+        log "warning: CLIPROXY_KEY is not set; the gpt backend will be unavailable in the router container"
+      fi
+      # --no-deps: dependencies were already handled by this script, and the
+      # existing cli-proxy-api may belong to another compose project.
+      # A failure may mean a concurrent launcher created it; the readiness
+      # wait that follows decides.
+      compose_up --no-deps "$service" \
+        || log "docker compose up $service failed; waiting in case it is starting elsewhere" ;;
+    *)
+      log "starting stopped container $name ($state)"
+      "$DOCKER_BIN" start "$name" >/dev/null || die "docker start $name failed" ;;
+  esac
+}
+
+ensure_cliproxy() {
+  start_container "$CLIPROXY_CONTAINER" cli-proxy-api
+  wait_for "CLIProxyAPI" "$READY_TIMEOUT" http_answers "$CLIPROXY_URL" \
+    || die "CLIProxyAPI did not answer at $CLIPROXY_URL within ${READY_TIMEOUT}s. Check: $DOCKER_BIN logs $CLIPROXY_CONTAINER"
+}
+
+# True when proxy.pid names a live router process started from src/index.js.
+local_router_pid() {
+  local pid
+  [ -f "$PID_FILE" ] || return 1
+  pid="$(tr -dc '0-9' <"$PID_FILE")"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  ps -p "$pid" -o command= 2>/dev/null | grep -qF "$ROOT/src/index.js" || return 1
+  printf '%s' "$pid"
+}
+
+release_lock() {
+  rm -rf "$LOCK_DIR"
+  trap - EXIT
+}
+
+# mkdir-based lock (macOS has no flock) serializing local router startup.
+# A lock whose owner process is gone is treated as stale and removed.
+acquire_lock() {
+  local deadline=$((SECONDS + READY_TIMEOUT)) owner
+  until mkdir "$LOCK_DIR" 2>/dev/null; do
+    owner="$(tr -dc '0-9' <"$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      log "removing stale lock $LOCK_DIR (process $owner is gone)"
+      rm -rf "$LOCK_DIR"
+      continue
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      die "could not acquire $LOCK_DIR within ${READY_TIMEOUT}s (held by process ${owner:-unknown}).
+  If no other claude-proxy is starting, remove it: rm -rf $LOCK_DIR"
+    fi
+    sleep "$POLL_INTERVAL"
+  done
+  printf '%s\n' "$$" >"$LOCK_DIR/pid"
+  trap release_lock EXIT
+}
+
+start_local_router() {
+  local pid
+  if pid="$(local_router_pid)"; then
+    die "local router process $pid is running but $ROUTER_URL/admin/status is not healthy.
+  Check $LOG_FILE, or stop it with: kill $pid"
+  fi
+  log "starting local router (log: $LOG_FILE)"
+  # Run node in its own session so it survives terminal hangup and Ctrl-C
+  # in Claude Code (which takes over this script's process group).
+  # Both execs keep the recorded pid equal to the node process pid.
+  (cd "$ROOT" && exec perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!\n"; exec @ARGV or die "exec: $!\n"' \
+    "$NODE_BIN" "$ROOT/src/index.js") </dev/null >>"$LOG_FILE" 2>&1 &
+  STARTED_PID="$!"
+  printf '%s\n' "$STARTED_PID" >"$PID_FILE"
+}
+
+local_router_ready() {
+  router_healthy && return 0
+  kill -0 "$STARTED_PID" 2>/dev/null \
+    || die "local router process $STARTED_PID exited during startup. Check: $LOG_FILE"
+  return 1
+}
+
+ensure_local_router() {
+  acquire_lock
+  # Another launcher may have started the router while this one waited.
+  if router_healthy; then
+    log "reusing router at $ROUTER_URL"
+  else
+    start_local_router
+    wait_for "router" "$READY_TIMEOUT" local_router_ready \
+      || die "router did not become healthy at $ROUTER_URL/admin/status within ${READY_TIMEOUT}s. Check: $LOG_FILE"
+  fi
+  release_lock
+}
+
+ensure_router() {
+  if router_healthy; then
+    log "reusing router at $ROUTER_URL"
+    return 0
+  fi
+  if [ "$MODE" = local ]; then
+    ensure_local_router
+    return 0
+  fi
+  start_container "$ROUTER_CONTAINER" router
+  wait_for "router" "$READY_TIMEOUT" router_healthy \
+    || die "router did not become healthy at $ROUTER_URL/admin/status within ${READY_TIMEOUT}s. Check: $DOCKER_BIN logs $ROUTER_CONTAINER"
+}
+
+has_settings_arg() {
+  local arg
+  for arg; do
+    case "$arg" in --settings|--settings=*) return 0 ;; esac
+  done
+  return 1
+}
+
+# The router response becomes a Claude Code settings file, and settings can
+# run commands (hooks, apiKeyHelper) or change env and permissions. So the
+# file is rebuilt from an allowlist: modelPicker.options[] entries with
+# string model/label/description only. Anything else is dropped.
+PICKER_JQ_FILTER='
+if length != 1 then error("expected one JSON document") else .[0] end
+| (try .modelPicker.options catch null) as $options
+| {modelPicker: {options: [
+    ($options | if type == "array" then .[] else empty end)
+    | select(type == "object")
+    | {model, label, description}
+    | with_entries(select(.value | type == "string"))
+    | select((.model // "") != "")
+  ]}}'
+
+PICKER_PY_FILTER='
+import json, sys
+with open(sys.argv[1]) as f:
+    doc = json.load(f)
+picker = doc.get("modelPicker") if isinstance(doc, dict) else None
+options = picker.get("options") if isinstance(picker, dict) else None
+clean = []
+for entry in options if isinstance(options, list) else []:
+    if not isinstance(entry, dict):
+        continue
+    row = {k: entry[k] for k in ("model", "label", "description") if isinstance(entry.get(k), str)}
+    if row.get("model"):
+        clean.append(row)
+json.dump({"modelPicker": {"options": clean}}, sys.stdout, separators=(",", ":"))
+'
+
+# Only a router on this machine may supply settings.
+router_is_loopback_http() {
+  local pattern='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?(/.*)?$'
+  [[ "$ROUTER_URL" =~ $pattern ]]
+}
+
+# sanitize_model_picker <raw-file> <out-file>
+sanitize_model_picker() {
+  if command -v "$JQ_BIN" >/dev/null 2>&1; then
+    "$JQ_BIN" -c -s "$PICKER_JQ_FILTER" "$1" >"$2" 2>/dev/null
+  elif command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    "$PYTHON_BIN" -c "$PICKER_PY_FILTER" "$1" >"$2" 2>/dev/null
+  else
+    log "warning: neither $JQ_BIN (jq) nor $PYTHON_BIN (python3) is available to validate the model picker"
+    return 1
+  fi
+}
+
+# Saves the sanitized router /model picker settings to PICKER_FILE. Both
+# temp files live in the same directory and the result is renamed into
+# place, so concurrent launchers never read a partial file.
+fetch_model_picker() {
+  local raw clean ok=1
+  if ! router_is_loopback_http; then
+    log "warning: $ROUTER_URL is not a loopback http URL; not loading model picker settings from it"
+    return 1
+  fi
+  mkdir -p "$PICKER_DIR" 2>/dev/null || return 1
+  raw="$(mktemp "$PICKER_DIR/raw.XXXXXX" 2>/dev/null)" || return 1
+  clean="$(mktemp "$PICKER_DIR/model-picker.XXXXXX" 2>/dev/null)" || { rm -f "$raw"; return 1; }
+  if "$CURL_BIN" -fsS -m 5 --max-filesize 1048576 -o "$raw" "$ROUTER_URL/admin/model-picker" 2>/dev/null \
+    && sanitize_model_picker "$raw" "$clean" \
+    && mv -f "$clean" "$PICKER_FILE"; then
+    ok=0
+  fi
+  rm -f "$raw" "$clean"
+  return "$ok"
+}
+
+exec_claude() {
+  # Model and token overrides from other launchers (for example a GPT-only
+  # alias) must not leak into the switchable router path.
+  unset ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL \
+    ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
+  # Claude Code assumes 200K for model IDs it does not recognize (the GPT,
+  # MiniMax and Kimi picker rows). Recognized Claude models ignore this value.
+  export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$MAX_CONTEXT_TOKENS"
+  export ANTHROPIC_BASE_URL="$ROUTER_URL"
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  # Multiple --settings flags may not merge, so a user-supplied one wins.
+  if has_settings_arg "$@"; then
+    log "warning: --settings was given; not adding the router model picker settings"
+  elif fetch_model_picker; then
+    set -- --settings "$PICKER_FILE" "$@"
+  else
+    log "warning: could not load $ROUTER_URL/admin/model-picker; launching without router models in /model"
+  fi
+  exec "$CLAUDE_BIN" "$@"
+}
+
+main() {
+  case "$MODE" in
+    container|local) ;;
+    *) die "unknown CLAUDE_PROXY_MODE '$MODE' (expected container or local)" ;;
+  esac
+  ensure_docker
+  ensure_cliproxy
+  ensure_router
+  exec_claude "$@"
+}
+
+main "$@"
