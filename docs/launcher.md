@@ -44,7 +44,10 @@ Claude Code 실행 직전 환경변수 처리:
 예외:
 
 - 사용자가 `--settings`(또는 `--settings=<파일>`)를 직접 넘기면 여러 `--settings`가 합쳐지지 않을 수 있으므로 경고만 출력하고 모델 피커 설정을 넣지 않는다.
-- 응답을 받지 못하면(예: 이 엔드포인트가 없는 이전 라우터가 떠 있을 때 404) 경고를 출력하고 `--settings` 없이 실행한다. 이전 라우터를 쓰는 중이면 라우터를 다시 시작해야 GPT 행이 나타난다.
+- 응답을 받지 못하거나 JSON 문서 하나가 아니면(예: 이 엔드포인트가 없는 이전 라우터가 떠 있을 때 404) 경고를 출력하고 `--settings` 없이 실행한다. 이전 라우터를 쓰는 중이면 라우터를 다시 시작해야 GPT 행이 나타난다.
+- `CLAUDE_PROXY_ROUTER_URL`이 `http://127.0.0.1[:포트]` 또는 `http://localhost[:포트]`가 아니면 설정을 받아 오지 않는다.
+
+설정 파일은 명령을 실행하는 `hooks`, `apiKeyHelper`나 `env`, `permissions`도 담을 수 있다. 그래서 라우터 응답을 그대로 저장하지 않고, `modelPicker.options[]`의 문자열 `model`, `label`, `description`만 남겨 파일을 새로 만든다. `model`이 없는 항목과 그 밖의 키는 모두 버린다. 이 작업은 `jq`로 하고, `jq`가 없으면 `python3`로 한다. 둘 다 없으면 경고를 출력하고 `--settings` 없이 실행한다. 응답 크기는 1 MiB로 제한한다.
 
 ## 라우터 모드
 
@@ -74,6 +77,7 @@ Claude Code 실행 직전 환경변수 처리:
 | `CLAUDE_PROXY_READY_TIMEOUT` | `60` | CLIProxyAPI와 라우터 준비 대기 시간(초) |
 | `CLAUDE_PROXY_POLL_INTERVAL` | `1` | 폴링 간격(초) |
 | `DOCKER_BIN`, `CURL_BIN`, `OPEN_BIN`, `NODE_BIN`, `CLAUDE_BIN` | `docker`, `curl`, `open`, `node`, `claude` | 사용할 실행 파일. 테스트에서 스텁으로 바꿔 쓴다. |
+| `JQ_BIN`, `PYTHON_BIN` | `jq`, `python3` | 모델 피커 응답을 검사할 때 쓰는 실행 파일. `jq`를 먼저 쓴다. |
 
 라우터 컨테이너에는 `CLIPROXY_KEY`, `MINIMAX_API_KEY`, `KIMI_API_KEY`가 compose를 실행한 셸에서 이름만으로 전달된다. 파일에 값을 적지 않는다. `config.json`은 읽기 전용으로 마운트되며, 파일이 없으면 compose가 오류를 낸다.
 

@@ -116,6 +116,19 @@ GPT 모델을 고른 세션의 요청은 라우터가 body의 `model`을 보고 
 
 라우터는 기본적으로 `127.0.0.1`에서만 수신한다. 컨테이너 안에서 실행할 때처럼 다른 주소가 필요하면 `PROXY_HOST` 환경변수나 `config.json`의 `host` 필드로 바꾼다(환경변수가 우선).
 
+### 요청 검사
+
+웹 페이지가 라우터를 거쳐 백엔드 키를 쓰지 못하도록, 모든 경로(`/admin/*` 포함)에서 요청을 먼저 검사한다. Claude Code의 일반 요청(JSON, `Origin` 없음, `Host: 127.0.0.1:<포트>`)은 그대로 통과한다.
+
+| 조건 | 응답 |
+|------|------|
+| `Origin` 헤더가 있음 | 403 |
+| `Host`가 `127.0.0.1:<포트>`, `localhost:<포트>`, `[::1]:<포트>`, `PROXY_ALLOWED_HOSTS` 중 하나가 아님 (DNS 리바인딩 차단) | 403 |
+| `POST`, `PUT`, `PATCH`의 `Content-Type`이 `application/json`이 아님 | 415 |
+| 요청 body가 32 MiB를 넘음 | 413 |
+
+`<포트>`는 요청을 받은 라우터 포트다. 컨테이너 모드는 `127.0.0.1:3456:3456`으로 게시하므로 추가 설정이 필요 없다. 다른 이름으로 접근해야 하면 `PROXY_ALLOWED_HOSTS=claude-proxy-router:3456,other:3456`처럼 쉼표로 구분한 `host:port` 목록을 지정한다.
+
 ## 백엔드 설정 (config.json)
 
 ```json
@@ -156,7 +169,7 @@ GPT 모델을 고른 세션의 요청은 라우터가 body의 `model`을 보고 
 | `baseUrl` | O | API 엔드포인트 기본 URL. 요청 path가 이 뒤에 붙음 (`baseUrl + /v1/messages`) |
 | `apiKey` | O | API 키. `null`이면 클라이언트가 보낸 원본 키 패스스루(단, `forwardClientAuth`가 `true`인 백엔드에서만). `${ENV_VAR}` 형식으로 환경변수 참조 가능 |
 | `modelMapping` | X | 설정 시 요청 body의 `model` 필드를 이 값으로 교체. Claude Code가 보내는 `claude-opus-4-6` 등을 백엔드에 맞게 변환 |
-| `models` | X | `{ "id", "label", "description"? }` 배열. 요청 body의 `model`이 `id`와 정확히 일치하면 활성 백엔드 대신 이 백엔드로 보낸다. 이렇게 고른 요청에는 `modelMapping`을 적용하지 않고 `id`를 그대로 보낸다. 여러 백엔드에 같은 `id`가 있으면 설정 파일 순서상 먼저 나온 백엔드를 쓴다. 일치한 백엔드가 사용 불가면 503을 돌려준다. `/admin/model-picker`의 `/model` 행 목록에도 쓰인다. `label`이 없으면 `id`를 쓴다 |
+| `models` | X | `{ "id", "label", "description"? }` 배열. 요청 body의 `model`이 `id`와 정확히 일치하면 활성 백엔드 대신 이 백엔드로 보낸다. 이렇게 고른 요청에는 `modelMapping`을 적용하지 않고 `id`를 그대로 보낸다. 여러 백엔드에 같은 `id`가 있으면 설정 파일 순서상 먼저 나온 백엔드를 쓰고, 설정을 읽을 때 경고 로그를 남긴다. 일치한 백엔드가 사용 불가면 503을 돌려준다. `/admin/model-picker`의 `/model` 행 목록에도 쓰인다. `label`이 없으면 `id`를 쓴다 |
 | `forwardClientAuth` | X | `true`이면 클라이언트가 보낸 인증 헤더(`authorization`, `x-api-key`, `proxy-authorization`, `cookie`)를 그대로 백엔드에 전달. 기본값은 `false`이며, 이 경우 위 헤더를 모두 제거한 뒤 `apiKey`가 있으면 `x-api-key`로 주입. 실제 Claude API 백엔드에만 `true`를 설정해 Claude Code의 OAuth 토큰이 제3자 백엔드로 유출되지 않도록 한다 |
 
 ### 환경변수 치환과 관용적 가용성 판정

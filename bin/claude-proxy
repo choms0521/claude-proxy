@@ -9,6 +9,8 @@ CURL_BIN="${CURL_BIN:-curl}"
 OPEN_BIN="${OPEN_BIN:-open}"
 NODE_BIN="${NODE_BIN:-node}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+JQ_BIN="${JQ_BIN:-jq}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 MODE="${CLAUDE_PROXY_MODE:-container}"
 ROUTER_URL="${CLAUDE_PROXY_ROUTER_URL:-http://127.0.0.1:3456}"
@@ -229,20 +231,74 @@ has_settings_arg() {
   return 1
 }
 
-# Saves the router's /model picker settings to PICKER_FILE. The response is
-# written to a temp file in the same directory and renamed, so concurrent
-# launchers never read a partial file.
-fetch_model_picker() {
-  local tmp
-  mkdir -p "$PICKER_DIR" 2>/dev/null || return 1
-  tmp="$(mktemp "$PICKER_DIR/model-picker.XXXXXX" 2>/dev/null)" || return 1
-  if "$CURL_BIN" -fsS -m 5 -o "$tmp" "$ROUTER_URL/admin/model-picker" 2>/dev/null \
-    && grep -q '"modelPicker"' "$tmp" \
-    && mv -f "$tmp" "$PICKER_FILE"; then
-    return 0
+# The router response becomes a Claude Code settings file, and settings can
+# run commands (hooks, apiKeyHelper) or change env and permissions. So the
+# file is rebuilt from an allowlist: modelPicker.options[] entries with
+# string model/label/description only. Anything else is dropped.
+PICKER_JQ_FILTER='
+if length != 1 then error("expected one JSON document") else .[0] end
+| (try .modelPicker.options catch null) as $options
+| {modelPicker: {options: [
+    ($options | if type == "array" then .[] else empty end)
+    | select(type == "object")
+    | {model, label, description}
+    | with_entries(select(.value | type == "string"))
+    | select((.model // "") != "")
+  ]}}'
+
+PICKER_PY_FILTER='
+import json, sys
+with open(sys.argv[1]) as f:
+    doc = json.load(f)
+picker = doc.get("modelPicker") if isinstance(doc, dict) else None
+options = picker.get("options") if isinstance(picker, dict) else None
+clean = []
+for entry in options if isinstance(options, list) else []:
+    if not isinstance(entry, dict):
+        continue
+    row = {k: entry[k] for k in ("model", "label", "description") if isinstance(entry.get(k), str)}
+    if row.get("model"):
+        clean.append(row)
+json.dump({"modelPicker": {"options": clean}}, sys.stdout, separators=(",", ":"))
+'
+
+# Only a router on this machine may supply settings.
+router_is_loopback_http() {
+  local pattern='^http://(127\.0\.0\.1|localhost)(:[0-9]+)?(/.*)?$'
+  [[ "$ROUTER_URL" =~ $pattern ]]
+}
+
+# sanitize_model_picker <raw-file> <out-file>
+sanitize_model_picker() {
+  if command -v "$JQ_BIN" >/dev/null 2>&1; then
+    "$JQ_BIN" -c -s "$PICKER_JQ_FILTER" "$1" >"$2" 2>/dev/null
+  elif command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    "$PYTHON_BIN" -c "$PICKER_PY_FILTER" "$1" >"$2" 2>/dev/null
+  else
+    log "warning: neither $JQ_BIN (jq) nor $PYTHON_BIN (python3) is available to validate the model picker"
+    return 1
   fi
-  rm -f "$tmp"
-  return 1
+}
+
+# Saves the sanitized router /model picker settings to PICKER_FILE. Both
+# temp files live in the same directory and the result is renamed into
+# place, so concurrent launchers never read a partial file.
+fetch_model_picker() {
+  local raw clean ok=1
+  if ! router_is_loopback_http; then
+    log "warning: $ROUTER_URL is not a loopback http URL; not loading model picker settings from it"
+    return 1
+  fi
+  mkdir -p "$PICKER_DIR" 2>/dev/null || return 1
+  raw="$(mktemp "$PICKER_DIR/raw.XXXXXX" 2>/dev/null)" || return 1
+  clean="$(mktemp "$PICKER_DIR/model-picker.XXXXXX" 2>/dev/null)" || { rm -f "$raw"; return 1; }
+  if "$CURL_BIN" -fsS -m 5 --max-filesize 1048576 -o "$raw" "$ROUTER_URL/admin/model-picker" 2>/dev/null \
+    && sanitize_model_picker "$raw" "$clean" \
+    && mv -f "$clean" "$PICKER_FILE"; then
+    ok=0
+  fi
+  rm -f "$raw" "$clean"
+  return "$ok"
 }
 
 exec_claude() {
@@ -259,7 +315,7 @@ exec_claude() {
   elif fetch_model_picker; then
     set -- --settings "$PICKER_FILE" "$@"
   else
-    log "warning: could not fetch $ROUTER_URL/admin/model-picker; launching without router models in /model"
+    log "warning: could not load $ROUTER_URL/admin/model-picker; launching without router models in /model"
   fi
   exec "$CLAUDE_BIN" "$@"
 }

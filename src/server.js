@@ -1,6 +1,7 @@
 import http from 'node:http'
 import { handleAdmin } from './admin.js'
 import { proxyRequest } from './proxy.js'
+import { validateRequest } from './guard.js'
 import { sendJson, log } from './utils.js'
 
 export function createServer(initialState) {
@@ -8,6 +9,13 @@ export function createServer(initialState) {
 
   const server = http.createServer(async (req, res) => {
     try {
+      const rejection = validateRequest(req, state.allowedHosts)
+      if (rejection) {
+        log('warn', `Rejected ${req.method} ${req.url}: ${rejection.error}`)
+        sendJson(res, rejection.status, { success: false, error: rejection.error })
+        return
+      }
+
       if (req.url.startsWith('/admin/')) {
         const { newState } = await handleAdmin(req, res, state)
         if (newState) {
@@ -18,9 +26,13 @@ export function createServer(initialState) {
 
       await proxyRequest(req, res, state)
     } catch (err) {
-      log('error', 'Unhandled server error', { error: err.message })
+      const status = err.statusCode ?? 500
+      log('error', 'Request failed', { error: err.message })
       if (!res.headersSent) {
-        sendJson(res, 500, { success: false, error: 'Internal proxy error' })
+        sendJson(res, status, {
+          success: false,
+          error: status === 500 ? 'Internal proxy error' : err.message,
+        })
       }
     }
   })

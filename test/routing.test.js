@@ -36,15 +36,16 @@ async function startUpstream(responseBody = { ok: true }) {
   return { url, received }
 }
 
-function send(routerUrl, path, { body, headers = {} } = {}) {
+function send(routerUrl, path, { body, headers = {}, method = 'POST' } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? '' : body
+    const lengthHeader = body === undefined ? {} : { 'content-length': Buffer.byteLength(payload) }
     const req = http.request(
       `${routerUrl}${path}`,
       {
-        method: 'POST',
+        method,
         agent: false,
-        headers: { 'content-length': Buffer.byteLength(payload), ...headers },
+        headers: { ...lengthHeader, ...headers },
       },
       (res) => {
         const chunks = []
@@ -288,11 +289,55 @@ test('a non-JSON body is forwarded unchanged to the active backend', async () =>
 
   await send(routerUrl, '/v1/messages', {
     body: 'not json gpt-6-astra',
-    headers: { ...CLIENT_HEADERS, 'content-type': 'text/plain' },
+    headers: CLIENT_HEADERS,
   })
 
   assert.equal(upstreams.gpt.received.length, 0)
   assert.equal(upstreams.claude.received[0].body, 'not json gpt-6-astra')
+})
+
+for (const [name, model] of [
+  ['__proto__', '__proto__'],
+  ['constructor', 'constructor'],
+  ['a number', 42],
+  ['an object', { id: 'gpt-5.5' }],
+  ['an array', ['gpt-5.5']],
+]) {
+  test(`a model value of ${name} follows the active backend`, async () => {
+    const { routerUrl, upstreams } = await setupRouter({ activeBackend: 'claude' })
+
+    const res = await send(routerUrl, '/v1/messages', {
+      body: messageBody(model),
+      headers: CLIENT_HEADERS,
+    })
+
+    assert.equal(res.status, 200)
+    assert.equal(upstreams.gpt.received.length, 0)
+    assert.equal(upstreams.claude.received.length, 1)
+  })
+}
+
+test('a __proto__ key in the body is forwarded as data, not as a prototype', async () => {
+  const { routerUrl, upstreams } = await setupRouter({ activeBackend: 'claude' })
+  const body = '{"model":"claude-opus-4-6","__proto__":{"model":"gpt-5.5"},"messages":[]}'
+
+  await send(routerUrl, '/v1/messages', { body, headers: CLIENT_HEADERS })
+
+  assert.equal(upstreams.gpt.received.length, 0)
+  const forwarded = JSON.parse(upstreams.claude.received[0].body)
+  assert.equal(forwarded.model, 'claude-opus-4-6')
+  assert.deepEqual(Object.getOwnPropertyDescriptor(forwarded, '__proto__').value, { model: 'gpt-5.5' })
+})
+
+test('a GET with no body follows the active backend', async () => {
+  const { routerUrl, upstreams } = await setupRouter({ activeBackend: 'claude' })
+
+  const res = await send(routerUrl, '/v1/models', { method: 'GET', headers: { authorization: 'Bearer t' } })
+
+  assert.equal(res.status, 200)
+  assert.equal(upstreams.gpt.received.length, 0)
+  assert.equal(upstreams.claude.received[0].url, '/v1/models')
+  assert.equal(upstreams.claude.received[0].body, '')
 })
 
 test('the response filter follows the backend chosen by model', async () => {

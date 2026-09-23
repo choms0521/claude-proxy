@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { loadConfig } from '../src/config.js'
 
 const ORIGINAL_HOST = process.env.PROXY_HOST
+const ORIGINAL_ALLOWED_HOSTS = process.env.PROXY_ALLOWED_HOSTS
 
 function writeConfig(extra = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'claude-proxy-config-'))
@@ -27,6 +28,11 @@ afterEach(() => {
     delete process.env.PROXY_HOST
   } else {
     process.env.PROXY_HOST = ORIGINAL_HOST
+  }
+  if (ORIGINAL_ALLOWED_HOSTS === undefined) {
+    delete process.env.PROXY_ALLOWED_HOSTS
+  } else {
+    process.env.PROXY_ALLOWED_HOSTS = ORIGINAL_ALLOWED_HOSTS
   }
 })
 
@@ -108,4 +114,58 @@ test('models that are not an array fail with a clear message', () => {
   })
 
   assert.throws(() => loadConfig(path), /Backend "claude": "models" must be an array/)
+})
+
+test('allowedHosts is empty by default', () => {
+  delete process.env.PROXY_ALLOWED_HOSTS
+
+  const config = loadConfig(writeConfig())
+
+  assert.deepEqual(config.allowedHosts, [])
+})
+
+test('PROXY_ALLOWED_HOSTS adds lower-cased host:port entries', () => {
+  process.env.PROXY_ALLOWED_HOSTS = ' Router.Internal:3456, ,claude-proxy-router:3456 '
+
+  const config = loadConfig(writeConfig())
+
+  assert.deepEqual(config.allowedHosts, ['router.internal:3456', 'claude-proxy-router:3456'])
+})
+
+test('warns when the same model id is listed under two backends', (t) => {
+  const lines = []
+  t.mock.method(console, 'log', (line) => lines.push(line))
+
+  const config = loadConfig(
+    writeConfig({
+      backends: {
+        claude: { name: 'Claude', baseUrl: 'https://api.anthropic.com', apiKey: null },
+        gpt: { name: 'GPT', baseUrl: 'http://a', apiKey: null, models: [{ id: 'gpt-5.5' }] },
+        other: { name: 'Other', baseUrl: 'http://b', apiKey: null, models: [{ id: 'gpt-5.5' }] },
+      },
+    })
+  )
+
+  assert.equal(config.backends.other.models[0].id, 'gpt-5.5')
+  const warning = lines.map((line) => JSON.parse(line)).find((entry) => entry.level === 'warn')
+  assert.ok(warning, 'expected a warn log entry')
+  assert.match(warning.message, /gpt-5\.5/)
+  assert.match(warning.message, /gpt/)
+  assert.match(warning.message, /other/)
+})
+
+test('does not warn when model ids are unique', (t) => {
+  const lines = []
+  t.mock.method(console, 'log', (line) => lines.push(line))
+
+  loadConfig(
+    writeConfig({
+      backends: {
+        claude: { name: 'Claude', baseUrl: 'https://api.anthropic.com', apiKey: null },
+        gpt: { name: 'GPT', baseUrl: 'http://a', apiKey: null, models: [{ id: 'gpt-5.5' }] },
+      },
+    })
+  )
+
+  assert.equal(lines.length, 0)
 })

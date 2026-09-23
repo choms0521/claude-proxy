@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { log } from './utils.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -81,15 +82,48 @@ function resolveBackends(backends) {
   )
 }
 
+// Routing uses the first backend in config order, so a model id listed
+// under two backends is reachable only through the first one.
+function warnDuplicateModelIds(backends) {
+  const owners = new Map()
+  for (const [id, backend] of Object.entries(backends)) {
+    for (const model of backend.models) {
+      owners.set(model.id, [...(owners.get(model.id) ?? []), id])
+    }
+  }
+  for (const [modelId, backendIds] of owners) {
+    if (backendIds.length > 1) {
+      log(
+        'warn',
+        `Model "${modelId}" is listed under backends ${backendIds.join(', ')}; requests go to ${backendIds[0]}`
+      )
+    }
+  }
+}
+
+// Extra Host header values (host:port) the router accepts besides the
+// loopback names, for example when another container reaches it by name.
+function parseAllowedHosts(value) {
+  return Object.freeze(
+    (value || '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean)
+  )
+}
+
 export function loadConfig(configPath) {
   const fullPath = configPath || resolve(__dirname, '..', 'config.json')
   const raw = JSON.parse(readFileSync(fullPath, 'utf-8'))
+  const backends = Object.freeze(resolveBackends(raw.backends))
+  warnDuplicateModelIds(backends)
 
   return Object.freeze({
     host: process.env.PROXY_HOST || raw.host || '127.0.0.1',
     port: raw.port || 3456,
+    allowedHosts: parseAllowedHosts(process.env.PROXY_ALLOWED_HOSTS),
     activeBackend: raw.activeBackend || 'claude',
-    backends: Object.freeze(resolveBackends(raw.backends)),
+    backends,
   })
 }
 
