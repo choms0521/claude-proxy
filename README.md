@@ -28,6 +28,8 @@ Claude Code  -->  Proxy (localhost:3456)  -->  Claude API (api.anthropic.com)
 ## 요구사항
 
 - Node.js 18+
+- Docker Desktop: `bin/claude-proxy` 실행기로 CLIProxyAPI와 라우터를 자동 기동할 때 필요
+- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI): GPT 모델을 쓸 때만 필요한 외부 저장소. 이 저장소에 포함되어 있지 않으므로 따로 받는다([GPT 백엔드 준비](#gpt-백엔드-준비-cliproxyapi) 참고)
 
 ## 설치 및 설정
 
@@ -48,11 +50,9 @@ export MINIMAX_API_KEY=your-minimax-api-key
 export CLIPROXY_KEY=your-cliproxyapi-key
 export CLIPROXY_BASE_URL=http://127.0.0.1:8317
 
-# Proxy URL
-export CLAUDE_PROXY_URL=http://localhost:3456
-
-# Proxy 경유 실행용 alias
-alias claude-proxy='ANTHROPIC_BASE_URL=$CLAUDE_PROXY_URL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude'
+# 실행기 alias. Docker, CLIProxyAPI, 라우터를 필요할 때 띄우고 Claude Code를 실행한다
+# 라우터를 컨테이너 대신 로컬 node로 띄우려면 앞에 CLAUDE_PROXY_MODE=local을 붙인다
+alias claude-proxy='/path/to/claude-proxy/bin/claude-proxy'
 ```
 
 ```bash
@@ -63,6 +63,52 @@ source ~/.zshrc
 
 `~/.claude/commands/switch-backend.md` 파일을 생성하면 `/switch-backend` 명령으로 전환 가능.
 `skill/switch-backend.md` 참고.
+
+## GPT 백엔드 준비 (CLIProxyAPI)
+
+GPT 모델은 claude-proxy가 직접 호출하지 않는다. 외부 저장소인 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)가 ChatGPT 구독(Codex OAuth)으로 GPT 모델을 Anthropic 호환 API(`127.0.0.1:8317`)로 제공하고, 라우터는 GPT 모델 요청을 이 서버로 보낸다. MiniMax·Kimi만 쓴다면 이 절은 건너뛴다.
+
+```
+Claude Code --> claude-proxy 라우터 (:3456) --> CLIProxyAPI (:8317) --> ChatGPT (Codex OAuth)
+```
+
+### AI 에이전트에게 맡기기
+
+[docs/ai-setup.md](docs/ai-setup.md)는 AI 코딩 에이전트가 그대로 따라 실행할 수 있는 설정 절차다. 저장소 루트에서 Claude Code를 열고 다음과 같이 요청하면 CLIProxyAPI 설치, 키 생성, `~/.zshrc` 등록, 확인까지 한 번에 진행한다. 사람은 중간에 Codex 로그인만 하면 된다.
+
+```text
+docs/ai-setup.md를 읽고 "에이전트 절차"를 순서대로 실행해서 GPT 백엔드를 설정해 줘.
+```
+
+### 직접 설정하기
+
+1. CLIProxyAPI를 `services/CLIProxyAPI`에 받는다. 이 경로는 `.gitignore`에 등록되어 있다.
+
+   ```bash
+   git clone https://github.com/router-for-me/CLIProxyAPI.git services/CLIProxyAPI
+   cd services/CLIProxyAPI
+   cp config.example.yaml config.yaml
+   cp .env.example .env
+   ```
+
+2. `config.yaml`의 `api-keys`를 직접 만든 무작위 키 하나로 바꾸고(예: `openssl rand -hex 32`), 같은 값을 `~/.zshrc`의 `CLIPROXY_KEY`로 등록한다.
+3. 저장소 루트에서 CLIProxyAPI 컨테이너를 시작한다. 포트는 `compose/cli-proxy-api.override.yml`에 따라 `127.0.0.1`에만 열린다.
+
+   ```bash
+   docker compose up -d --pull missing --no-deps cli-proxy-api
+   ```
+
+4. Codex(ChatGPT) 계정으로 로그인한다. 출력된 URL을 브라우저에서 연다. 콜백이 실패하면 `-codex-device-login`을 쓴다.
+
+   ```bash
+   docker exec -it cli-proxy-api ./CLIProxyAPI -codex-login -no-browser
+   ```
+
+5. 새 터미널에서 `claude-proxy`를 실행하고 `/model` 목록에 GPT 모델이 보이는지 확인한다.
+
+CLIProxyAPI를 이미 다른 위치에서 운영 중이라면 새로 받지 않아도 된다. 실행기는 실행 중인 `cli-proxy-api` 컨테이너를 그대로 재사용한다. 컨테이너를 새로 만들어야 할 때 쓸 저장소 경로는 `CLIPROXY_DIR`로 지정한다([docs/launcher.md](docs/launcher.md) 참고).
+
+`/switch-backend gpt`로 전역 전환했을 때 Claude 모델 이름(`claude-opus-5-5` 등)을 GPT 모델로 바꿔 보내려면 CLIProxyAPI `config.yaml`의 `oauth-model-alias.codex`에 별칭을 추가한다. 예시는 [docs/ai-setup.md](docs/ai-setup.md)의 3단계에 있다.
 
 ## 사용법
 
@@ -210,7 +256,17 @@ claude-proxy/
 │   ├── routing.js        # 요청 body의 model로 백엔드 선택
 │   ├── admin.js          # Admin API 핸들러 (status, switch, model-picker)
 │   ├── config.js         # config.json 로딩, 환경변수 치환, 불변 상태 관리
+│   ├── guard.js          # Origin, Host, Content-Type 요청 검사
+│   ├── headers.js        # 백엔드별 인증 헤더 구성
 │   └── utils.js          # sendJson, readBody, log 헬퍼
+├── bin/
+│   └── claude-proxy      # 실행기 (Docker, CLIProxyAPI, 라우터 기동 후 Claude Code 실행)
+├── compose.yaml          # 라우터 + CLIProxyAPI(include) 컨테이너 구성
+├── docs/
+│   ├── ai-setup.md       # AI 에이전트용 GPT 백엔드 설정 절차
+│   └── launcher.md       # 실행기 상세
+├── services/
+│   └── CLIProxyAPI/      # 외부 저장소 위치 (git 제외, 직접 clone)
 └── skill/
     └── switch-backend.md # Claude Code 스킬 정의
 ```
