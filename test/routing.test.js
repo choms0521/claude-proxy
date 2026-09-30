@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { createServer } from '../src/server.js'
 import { selectBackend } from '../src/routing.js'
+import { buildModelPicker } from '../src/admin.js'
+import { readFileSync } from 'node:fs'
 
 // Every upstream here is a local stub server on an ephemeral port. Requests
 // use `agent: false` so no keep-alive socket holds a server open after a test.
@@ -381,4 +383,27 @@ after(() => {
     server.closeAllConnections?.()
     server.close()
   }
+})
+
+test('config.example.json lists GPT-6.1 Sol in the picker and forwards it unchanged', async () => {
+  const example = JSON.parse(readFileSync(new URL('../config.example.json', import.meta.url), 'utf8'))
+  const models = example.backends.gpt.models
+  const entry = models.find((m) => m.id === 'gpt-6.1-sol')
+  assert.equal(entry?.label, 'GPT-6.1 Sol')
+
+  const { routerUrl, upstreams } = await setupRouter({ gpt: { models } })
+  const picker = buildModelPicker({
+    activeBackend: 'claude',
+    backends: { gpt: { name: 'GPT (CLIProxyAPI)', available: true, models } },
+  })
+  assert.ok(picker.modelPicker.options.some((o) => o.model === 'gpt-6.1-sol' && o.label === 'GPT-6.1 Sol'))
+
+  const res = await send(routerUrl, '/v1/messages', {
+    body: messageBody('gpt-6.1-sol'),
+    headers: CLIENT_HEADERS,
+  })
+
+  assert.equal(res.status, 200)
+  assert.equal(upstreams.gpt.received.length, 1)
+  assert.equal(JSON.parse(upstreams.gpt.received[0].body).model, 'gpt-6.1-sol')
 })
