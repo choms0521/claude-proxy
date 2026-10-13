@@ -31,7 +31,8 @@ Claude Code 실행 직전 환경변수 처리:
 
 - 제거: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`. GPT 전용 실행 설정이 전환 가능한 경로에 섞이지 않게 한다.
 - 설정: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`를 `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` 값(기본 `1000000`)으로 설정한다. Claude Code는 모르는 모델 ID(GPT, MiniMax, Kimi 목록 항목)의 컨텍스트를 200K로 가정하므로 이 값으로 1M까지 쓰게 한다. Claude Code가 아는 Claude 모델에는 적용되지 않는다.
-- 설정: `ANTHROPIC_BASE_URL=http://127.0.0.1:3456`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+- 설정: `ANTHROPIC_BASE_URL=http://127.0.0.1:3456`.
+- 설정하지 않음: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. 이 값이 있으면 Claude Code가 Artifact 도구와 `/design`을 끈다. 셸에서 직접 설정한 값은 그대로 전달된다.
 
 ## `/model`의 GPT 모델
 

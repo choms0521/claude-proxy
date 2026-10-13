@@ -311,7 +311,6 @@ exec_claude() {
   # MiniMax and Kimi picker rows). Recognized Claude models ignore this value.
   export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$MAX_CONTEXT_TOKENS"
   export ANTHROPIC_BASE_URL="$ROUTER_URL"
-  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
   # Multiple --settings flags may not merge, so a user-supplied one wins.
   if has_settings_arg "$@"; then
     log "warning: --settings was given; not adding the router model picker settings"
