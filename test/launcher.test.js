@@ -296,7 +296,7 @@ test('clears GPT leftovers, sets the base URL and passes args through', () => {
   assert.equal(r.status, 0, r.stderr)
   assert.deepEqual(r.claudeOut, [
     'ANTHROPIC_BASE_URL=http://127.0.0.1:3456',
-    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
+    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=unset',
     'ANTHROPIC_AUTH_TOKEN=unset',
     'ANTHROPIC_MODEL=unset',
     'ANTHROPIC_SMALL_FAST_MODEL=unset',
