@@ -7,7 +7,7 @@ Claude Code 세션 중간에 Anthropic 호환 API 백엔드를 실시간 전환�
 
 ```
 Claude Code  -->  Proxy (localhost:3456)  -->  Claude API (api.anthropic.com)
-                       |                 -->  GPT (CLIProxyAPI, 127.0.0.1:8317)
+                       |                 -->  GPT / Gemini (CLIProxyAPI, 127.0.0.1:8317)
                        |                 -->  MiniMax API (api.minimax.io/anthropic)
                        |
                   /admin/switch 로
@@ -29,7 +29,7 @@ Claude Code  -->  Proxy (localhost:3456)  -->  Claude API (api.anthropic.com)
 
 - Node.js 18+
 - Docker Desktop: `bin/claude-proxy` 실행기로 CLIProxyAPI와 라우터를 자동 기동할 때 필요
-- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI): GPT 모델을 쓸 때만 필요한 외부 저장소. 이 저장소에 포함되어 있지 않으므로 따로 받는다([GPT 백엔드 준비](#gpt-백엔드-준비-cliproxyapi) 참고)
+- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI): GPT 또는 Gemini 모델을 쓸 때 필요한 외부 저장소. 이 저장소에 포함되어 있지 않으므로 따로 받는다([GPT 백엔드 준비](#gpt-백엔드-준비-cliproxyapi), [Gemini 구독 계정 연결](docs/gemini-setup.md) 참고)
 
 ## 설치 및 설정
 
@@ -46,7 +46,7 @@ cd claude-proxy
 # MiniMax API 키
 export MINIMAX_API_KEY=your-minimax-api-key
 
-# GPT 백엔드(CLIProxyAPI) 키와 접속 주소. CLIPROXY_BASE_URL은 생략 시 http://127.0.0.1:8317 사용
+# GPT·Gemini 백엔드의 로컬 CLIProxyAPI 접속 키와 주소. Google API 키가 아님
 export CLIPROXY_KEY=your-cliproxyapi-key
 export CLIPROXY_BASE_URL=http://127.0.0.1:8317
 
@@ -110,6 +110,12 @@ CLIProxyAPI를 이미 다른 위치에서 운영 중이라면 새로 받지 않�
 
 `/switch-backend gpt`로 전역 전환했을 때 Claude 모델 이름(`claude-opus-5-5` 등)을 GPT 모델로 바꿔 보내려면 CLIProxyAPI `config.yaml`의 `oauth-model-alias.codex`에 별칭을 추가한다. 예시는 [docs/ai-setup.md](docs/ai-setup.md)의 3단계에 있다.
 
+## Gemini 백엔드 준비 (구독 계정)
+
+Gemini는 같은 CLIProxyAPI에 Google 계정의 Antigravity OAuth 로그인을 추가해서 사용한다. Gemini API 키는 필요하지 않으며, GPT와 같은 `CLIPROXY_KEY`·접속 주소를 재사용한다. `config.example.json`의 `gemini` 항목을 기존 `config.json`에 추가한다.
+
+[Gemini 구독 계정 연결](docs/gemini-setup.md)에서 계정 조건, 제삼자 OAuth 접근 제한 신고, 로그인 명령, 모델 목록 확인 순서로 설정한다. 구독만으로 모든 모델 접근 권한이나 무제한 사용이 보장되지는 않는다. 실제 Google 로그인은 사용자가 직접 한다.
+
 ## 사용법
 
 ### Proxy 시작
@@ -132,6 +138,7 @@ Claude Code 안에서 `/switch-backend` 스킬 사용:
 ```
 /switch-backend           # 현재 상태 + 가용 백엔드 목록
 /switch-backend gpt       # GPT(CLIProxyAPI)로 전환
+/switch-backend gemini    # Gemini 구독 백엔드로 전환
 /switch-backend minimax   # MiniMax로 전환
 /switch-backend claude    # Claude로 복귀
 ```
@@ -150,11 +157,11 @@ curl -s http://localhost:3456/admin/status | jq .
 
 > 전환은 **다음 턴**부터 적용된다. 현재 턴은 기존 모델이 응답.
 
-### `/model`에서 GPT 모델 선택
+### `/model`에서 GPT·Gemini 모델 선택
 
-`bin/claude-proxy`로 실행하면 `/model` 목록에 `GPT-6 Astra`, `GPT-5.5` 행이 추가된다. 위 2단계의 `ANTHROPIC_BASE_URL=... claude` alias는 실행기를 거치지 않으므로 이 행이 나타나지 않는다. alias를 쓰려면 `alias claude-proxy='<저장소 경로>/bin/claude-proxy'`처럼 실행기를 가리키게 한다. 행을 고른 뒤 **Enter가 아니라 `s`** 를 눌러 이 세션에만 적용한다. Enter는 모든 세션의 기본 모델로 저장하므로 라우터를 거치지 않는 일반 `claude`가 깨진다.
+`bin/claude-proxy`로 실행하면 `/model` 목록에 설정된 백엔드의 모델 행이 추가된다. 예제 설정에는 `GPT-6 Astra`, `GPT-5.5`, `Gemini 3.1 Pro (High)`, `Gemini 3 Flash`가 있다. 위 2단계의 `ANTHROPIC_BASE_URL=... claude` alias는 실행기를 거치지 않으므로 이 행이 나타나지 않는다. alias를 쓰려면 `alias claude-proxy='<저장소 경로>/bin/claude-proxy'`처럼 실행기를 가리키게 한다. 행을 고른 뒤 **Enter가 아니라 `s`** 를 눌러 이 세션에만 적용한다. Enter는 모든 세션의 기본 모델로 저장하므로 라우터를 거치지 않는 일반 `claude`가 깨진다.
 
-GPT 모델을 고른 세션의 요청은 라우터가 body의 `model`을 보고 자동으로 GPT 백엔드로 보낸다. `/switch-backend`는 필요 없다. Claude Code가 백그라운드로 보내는 Haiku 요청은 계속 활성 백엔드(기본값 Claude)로 간다. `/switch-backend`는 `claude-*` 요청 전체를 minimax, kimi 같은 백엔드로 전역 전환할 때 쓴다. 자세한 내용은 [docs/launcher.md](docs/launcher.md)를 본다.
+GPT·Gemini 모델을 고른 세션의 요청은 body의 `model`에 따라 해당 백엔드로 간다. `/switch-backend`는 필요 없다. Claude Code가 백그라운드로 보내는 Haiku 요청은 계속 활성 백엔드(기본값 Claude)로 간다. `/switch-backend`는 `claude-*` 요청 전체를 minimax, kimi 같은 백엔드로 전역 전환할 때 쓴다. 자세한 내용은 [docs/launcher.md](docs/launcher.md)를 본다.
 
 > `/admin/switch`는 `Content-Type: application/json` 요청만 받고, `Origin` 헤더가 있는 요청(브라우저에서 보낸 요청)은 403으로 거부한다.
 

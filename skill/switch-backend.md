@@ -1,10 +1,10 @@
 ---
 name: switch-backend
 description: Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다.
-argument-hint: "[status|claude|gpt|minimax|kimi]"
+argument-hint: "[status|claude|gpt|gemini|minimax|kimi]"
 ---
 
-Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다. $ARGUMENTS: [status|claude|gpt|minimax|kimi]
+Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다. $ARGUMENTS: [status|claude|gpt|gemini|minimax|kimi]
 
 ## 동작
 
@@ -17,6 +17,7 @@ Claude Code Proxy Router의 백엔드를 전환하거나 상태를 확인한다.
 가용 백엔드:
   [활성]   claude  - Claude API
   [비활성] gpt     - GPT (CLIProxyAPI)
+  [비활성] gemini  - Gemini (CLIProxyAPI / Antigravity)
   [비활성] minimax - MiniMax API (사용 불가: Environment variable MINIMAX_API_KEY is not set)
   [비활성] kimi    - Kimi Code
 ```

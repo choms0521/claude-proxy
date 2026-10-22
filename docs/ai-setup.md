@@ -4,6 +4,8 @@
 
 GPT 백엔드는 외부 저장소인 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)가 필요하다. CLIProxyAPI는 ChatGPT 구독(Codex OAuth)으로 GPT 모델을 Anthropic 호환 API로 제공하고, claude-proxy 라우터는 GPT 모델 요청을 이 서버로 보낸다. 사람이 직접 설정하려면 [README의 GPT 백엔드 준비](../README.md#gpt-백엔드-준비-cliproxyapi)를 따른다.
 
+Gemini 구독 계정을 연결하려면 [Gemini 구독 계정 연결](gemini-setup.md)을 따른다. 아래 절차는 GPT 전용이며, Gemini용 Google OAuth 로그인을 Codex 로그인이나 Gemini API 키 설정으로 대체하지 않는다. 두 백엔드는 같은 CLIProxyAPI를 재사용할 수 있다.
+
 ## 사용 방법
 
 claude-proxy 저장소 루트에서 Claude Code를 열고 다음과 같이 요청한다.

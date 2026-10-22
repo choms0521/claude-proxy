@@ -50,6 +50,22 @@
         }
       ]
     },
+    "gemini": {
+      "name": "Gemini (CLIProxyAPI / Antigravity)",
+      "baseUrl": "${CLIPROXY_BASE_URL:-http://127.0.0.1:8317}",
+      "apiKey": "${CLIPROXY_KEY}",
+      "modelMapping": "gemini-pro-agent",
+      "models": [
+        {
+          "id": "gemini-pro-agent",
+          "label": "Gemini 3.1 Pro (High)"
+        },
+        {
+          "id": "gemini-3-flash",
+          "label": "Gemini 3 Flash"
+        }
+      ]
+    },
     "minimax": {
       "name": "MiniMax API",
       "baseUrl": "https://api.minimax.io/anthropic",
