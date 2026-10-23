@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { log } from './utils.js'
+import { DEFAULT_PAYLOAD_METRICS_PATH } from './metrics.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -112,6 +113,19 @@ function parseAllowedHosts(value) {
   )
 }
 
+function resolvePayloadMetricsPath(rawPath) {
+  if (process.env.CLAUDE_PROXY_PAYLOAD_FILE) {
+    return process.env.CLAUDE_PROXY_PAYLOAD_FILE
+  }
+  if (typeof rawPath === 'string' && rawPath !== '') {
+    return rawPath
+  }
+  if (process.env.NODE_TEST_CONTEXT) {
+    return null
+  }
+  return DEFAULT_PAYLOAD_METRICS_PATH
+}
+
 export function loadConfig(configPath) {
   const fullPath = configPath || resolve(__dirname, '..', 'config.json')
   const raw = JSON.parse(readFileSync(fullPath, 'utf-8'))
@@ -123,6 +137,7 @@ export function loadConfig(configPath) {
     port: raw.port || 3456,
     allowedHosts: parseAllowedHosts(process.env.PROXY_ALLOWED_HOSTS),
     activeBackend: raw.activeBackend || 'claude',
+    payloadMetricsPath: resolvePayloadMetricsPath(raw.payloadMetricsPath),
     backends,
   })
 }

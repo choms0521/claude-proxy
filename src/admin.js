@@ -2,6 +2,8 @@ import { switchBackend } from './config.js'
 import { sendJson, readBody, log } from './utils.js'
 
 export function handleStatus(state) {
+  const lastRequest = state.payloadMetrics?.lastRequest ?? null
+  const byModel = state.payloadMetrics?.byModel ?? {}
   return {
     success: true,
     data: {
@@ -15,6 +17,9 @@ export function handleStatus(state) {
         ...(b.available ? {} : { unavailableReason: b.unavailableReason }),
         models: b.models ?? [],
       })),
+      lastRequestPayloadBytes: lastRequest ? lastRequest.payloadBytes : null,
+      lastRequest,
+      payloadByModel: byModel,
     },
   }
 }

@@ -9,9 +9,10 @@ export function sendJson(res, statusCode, data) {
 
 export const MAX_BODY_BYTES = 32 * 1024 * 1024
 
-function bodyTooLargeError(maxBytes) {
+function bodyTooLargeError(maxBytes, payloadBytes) {
   const err = new Error(`Request body exceeds the ${maxBytes}-byte limit`)
   err.statusCode = 413
+  err.payloadBytes = payloadBytes
   return err
 }
 
@@ -27,7 +28,7 @@ export function readBody(req, maxBytes = MAX_BODY_BYTES) {
     })
     req.on('end', () => {
       if (size > maxBytes) {
-        reject(bodyTooLargeError(maxBytes))
+        reject(bodyTooLargeError(maxBytes, size))
         return
       }
       resolve(Buffer.concat(chunks))
