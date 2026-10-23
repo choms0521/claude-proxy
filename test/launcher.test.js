@@ -330,12 +330,28 @@ test('runs claude with only the injected settings when given no arguments', () =
   )
 })
 
+const EXPECTED_PICKER = {
+  env: {
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456',
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
+  },
+  modelPicker: {
+    options: [
+      {
+        model: 'gpt-6-astra',
+        label: 'GPT-6 Astra',
+        description: 'GPT (CLIProxyAPI) · press s to use for this session only',
+      },
+    ],
+  },
+}
+
 test('writes the router model picker response to the settings file', () => {
   const ctx = setup()
   const r = run(ctx)
   assert.equal(r.status, 0, r.stderr)
   assert.ok(r.calls.includes('fetch-model-picker http://127.0.0.1:3456/admin/model-picker'))
-  assert.deepEqual(readPicker(ctx), JSON.parse(MODEL_PICKER))
+  assert.deepEqual(readPicker(ctx), EXPECTED_PICKER)
   assert.deepEqual(readdirSync(join(ctx.repo, '.claude-proxy')), ['model-picker.json'])
 })
 
@@ -345,7 +361,7 @@ test('replaces a previous settings file with the fresh router response', () => {
   writeFileSync(ctx.pickerFile, '{"modelPicker":{"options":[]}}')
   const r = run(ctx)
   assert.equal(r.status, 0, r.stderr)
-  assert.deepEqual(readPicker(ctx), JSON.parse(MODEL_PICKER))
+  assert.deepEqual(readPicker(ctx), EXPECTED_PICKER)
 })
 
 const HOSTILE_PICKER = JSON.stringify({
@@ -367,6 +383,10 @@ const HOSTILE_PICKER = JSON.stringify({
 })
 
 const SANITIZED_PICKER = {
+  env: {
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456',
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
+  },
   modelPicker: {
     options: [
       { model: 'gpt-6-astra', label: 'GPT-6 Astra', description: 'ok' },
@@ -438,9 +458,16 @@ for (const url of [
 
 test('fetches settings from http://localhost with a path', () => {
   const ctx = setup()
-  const r = run(ctx, [], { CLAUDE_PROXY_ROUTER_URL: 'http://localhost:3456/' })
+  const r = run(ctx, [], {
+    CLAUDE_PROXY_ROUTER_URL: 'http://localhost:3456/',
+    CLAUDE_PROXY_MAX_CONTEXT_TOKENS: '500000',
+  })
   assert.equal(r.status, 0, r.stderr)
   assert.ok(r.claudeOut.includes('arg:--settings'))
+  assert.deepEqual(readPicker(ctx).env, {
+    ANTHROPIC_BASE_URL: 'http://localhost:3456/',
+    CLAUDE_CODE_MAX_CONTEXT_TOKENS: '500000',
+  })
 })
 
 test('launches without settings when the model picker fetch fails', () => {
