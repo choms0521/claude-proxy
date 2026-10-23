@@ -5,6 +5,7 @@ import { sendJson, readBody, log } from './utils.js'
 import { createChineseFilter } from './filters.js'
 import { buildHeaders } from './headers.js'
 import { selectBackend } from './routing.js'
+import { buildPayloadMetric } from './metrics.js'
 
 function buildTargetUrl(backend, path) {
   const base = backend.baseUrl.replace(/\/$/, '')
@@ -79,9 +80,19 @@ export async function proxyRequest(clientReq, clientRes, state) {
   const selection = selectBackend(state, parsed?.model)
 
   if (selection.error) {
+    const lastRequest =
+      rawBody.length > 0
+        ? buildPayloadMetric({
+            payloadBytes: rawBody.length,
+            forwardedPayloadBytes: rawBody.length,
+            model: parsed?.model,
+            backend: null,
+            path: clientReq.url,
+          })
+        : null
     log('error', 'No backend for request', { error: selection.cause ?? selection.error })
     sendJson(clientRes, selection.status, { success: false, error: selection.error })
-    return
+    return { lastRequest }
   }
 
   const { backend, matchedModel } = selection
@@ -97,9 +108,21 @@ export async function proxyRequest(clientReq, clientRes, state) {
     headers['content-length'] = String(body.length)
   }
 
+  const lastRequest =
+    rawBody.length > 0
+      ? buildPayloadMetric({
+          payloadBytes: rawBody.length,
+          forwardedPayloadBytes: body.length,
+          model: parsed?.model,
+          backend: backend.id ?? backend.name,
+          path: clientReq.url,
+        })
+      : null
+
   log(
     'info',
-    `Proxying ${clientReq.method} ${clientReq.url} -> ${backend.name} (${describeChoice(matchedModel)})`
+    `Proxying ${clientReq.method} ${clientReq.url} -> ${backend.name} (${describeChoice(matchedModel)})`,
+    lastRequest ? { payloadBytes: lastRequest.payloadBytes } : undefined
   )
 
   const proxyReq = transport.request(targetUrl, { method: clientReq.method, headers }, (proxyRes) => {
@@ -125,4 +148,5 @@ export async function proxyRequest(clientReq, clientRes, state) {
     proxyReq.write(body)
   }
   proxyReq.end()
+  return { lastRequest }
 }
