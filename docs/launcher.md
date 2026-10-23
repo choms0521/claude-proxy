@@ -1,6 +1,6 @@
 # 실행기 `bin/claude-proxy`
 
-`claude-proxy` 명령 하나로 Docker 엔진, CLIProxyAPI, 프록시 라우터를 필요할 때만 구동하고 Claude Code를 라우터에 연결해 실행한다. GPT 모델은 `/model` 목록에서 골라 쓰고, `claude-*` 요청 전체를 다른 백엔드로 보낼 때는 `/switch-backend`를 쓴다.
+`claude-proxy` 명령 하나로 Docker 엔진, CLIProxyAPI, 프록시 라우터를 필요할 때만 구동하고 Claude Code를 라우터에 연결해 실행한다. GPT·Gemini 모델은 `/model` 목록에서 골라 쓰고, `claude-*` 요청 전체를 다른 백엔드로 보낼 때는 `/switch-backend`를 쓴다.
 
 ## 사용법
 
@@ -13,7 +13,7 @@ ln -s "$PWD/bin/claude-proxy" ~/.local/bin/claude-proxy
 claude-proxy --resume
 ```
 
-인자는 모두 그대로 `claude`에 전달된다. 실행기는 그 앞에 `--settings <모델 피커 파일>`을 붙인다(아래 "`/model`의 GPT 모델" 참고).
+인자는 모두 그대로 `claude`에 전달된다. 실행기는 그 앞에 `--settings <모델 피커 파일>`을 붙인다(아래 "`/model`의 외부 백엔드 모델" 참고).
 
 ## 실행 순서
 
@@ -30,18 +30,18 @@ claude-proxy --resume
 Claude Code 실행 직전 환경변수 처리:
 
 - 제거: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`. GPT 전용 실행 설정이 전환 가능한 경로에 섞이지 않게 한다.
-- 설정: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`를 `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` 값(기본 `1000000`)으로 설정한다. Claude Code는 모르는 모델 ID(GPT, MiniMax, Kimi 목록 항목)의 컨텍스트를 200K로 가정하므로 이 값으로 1M까지 쓰게 한다. Claude Code가 아는 Claude 모델에는 적용되지 않는다.
+- 설정: `CLAUDE_CODE_MAX_CONTEXT_TOKENS`를 `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` 값(기본 `1000000`)으로 설정한다. Claude Code는 모르는 모델 ID(GPT, Gemini, MiniMax, Kimi 목록 항목)의 컨텍스트를 200K로 가정하므로 이 값으로 1M까지 쓰게 한다. Claude Code가 아는 Claude 모델에는 적용되지 않는다.
 - 설정: `ANTHROPIC_BASE_URL=http://127.0.0.1:3456`.
 - 설정하지 않음: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. 이 값이 있으면 Claude Code가 Artifact 도구와 `/design`을 끈다. 셸에서 직접 설정한 값은 그대로 전달된다.
 
-## `/model`의 GPT 모델
+## `/model`의 외부 백엔드 모델
 
-라우터의 `/admin/model-picker`는 사용 가능한 백엔드의 `models`로 Claude Code `modelPicker` 설정을 만든다. 실행기가 이 설정을 `--settings`로 넘기므로 `/model` 목록의 기본 모델 아래에 `GPT-6 Astra`, `GPT-5.5` 같은 행이 추가된다.
+라우터의 `/admin/model-picker`는 사용 가능한 백엔드의 `models`로 Claude Code `modelPicker` 설정을 만든다. 실행기가 이 설정을 `--settings`로 넘기므로 `/model` 목록의 기본 모델 아래에 `GPT-6 Astra`, `Gemini 3.1 Pro (High)` 같은 행이 추가된다. Gemini는 먼저 [구독 계정 연결](gemini-setup.md)을 마쳐야 한다.
 
-- 행을 고른 뒤 **`s`를 누른다.** 이 세션에만 적용된다. Enter를 누르면 모든 세션의 기본 모델로 저장되어, 라우터를 거치지 않는 일반 `claude`까지 GPT 모델 ID로 요청하게 되고 실패한다. 각 행 설명에도 이 안내가 들어 있다.
-- GPT 모델을 고르면 그 세션의 요청이 자동으로 GPT 백엔드로 간다. 라우터가 요청 body의 `model`을 보고 백엔드를 고르기 때문이며, `/switch-backend`로 전역 백엔드를 바꿀 필요가 없다.
+- 행을 고른 뒤 **`s`를 누른다.** 이 세션에만 적용된다. Enter를 누르면 모든 세션의 기본 모델로 저장되어, 라우터를 거치지 않는 일반 `claude`까지 외부 모델 ID로 요청하게 되고 실패한다. 각 행 설명에도 이 안내가 들어 있다.
+- GPT·Gemini 모델을 고르면 그 세션의 요청이 해당 백엔드로 간다. 라우터가 요청 body의 `model`을 보고 백엔드를 고르기 때문이며, `/switch-backend`로 전역 백엔드를 바꿀 필요가 없다.
 - Claude Code가 백그라운드로 보내는 Haiku 요청(`claude-haiku-*`)은 `models`에 없으므로 활성 백엔드(기본값 Claude)로 간다.
-- `/switch-backend`는 그대로 남는다. `claude-*` 요청 전체를 minimax, kimi 같은 백엔드로 전역 전환할 때 쓴다.
+- `/switch-backend`는 그대로 남는다. `claude-*` 요청 전체를 gemini, minimax, kimi 같은 백엔드로 전역 전환할 때 쓴다. Gemini 전역 전환은 `modelMapping`에 지정한 모델을 사용한다.
 
 예외:
 
@@ -77,7 +77,7 @@ Claude Code 실행 직전 환경변수 처리:
 | `ROUTER_CLIPROXY_BASE_URL` | `http://cli-proxy-api:8317` | 라우터 컨테이너가 CLIProxyAPI에 접속할 주소(compose에서 사용) |
 | `CLAUDE_PROXY_DOCKER_TIMEOUT` | `120` | Docker 엔진 기동 대기 시간(초) |
 | `CLAUDE_PROXY_READY_TIMEOUT` | `60` | CLIProxyAPI와 라우터 준비 대기 시간(초) |
-| `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` | `1000000` | 라우터 목록 모델(GPT, MiniMax, Kimi)에 적용할 컨텍스트 창 크기 |
+| `CLAUDE_PROXY_MAX_CONTEXT_TOKENS` | `1000000` | 라우터 목록 모델(GPT, Gemini, MiniMax, Kimi)에 적용할 컨텍스트 창 크기 |
 | `CLAUDE_PROXY_POLL_INTERVAL` | `1` | 폴링 간격(초) |
 | `DOCKER_BIN`, `CURL_BIN`, `OPEN_BIN`, `NODE_BIN`, `CLAUDE_BIN` | `docker`, `curl`, `open`, `node`, `claude` | 사용할 실행 파일. 테스트에서 스텁으로 바꿔 쓴다. |
 | `JQ_BIN`, `PYTHON_BIN` | `jq`, `python3` | 모델 피커 응답을 검사할 때 쓰는 실행 파일. `jq`를 먼저 쓴다. |
