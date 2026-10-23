@@ -235,17 +235,24 @@ has_settings_arg() {
 # The router response becomes a Claude Code settings file, and settings can
 # run commands (hooks, apiKeyHelper) or change env and permissions. So the
 # file is rebuilt from an allowlist: modelPicker.options[] entries with
-# string model/label/description only. Anything else is dropped.
+# string model/label/description only, plus the launcher's own trusted router
+# env vars so restored sessions (--resume --settings <picker>) stay routed.
 PICKER_JQ_FILTER='
 if length != 1 then error("expected one JSON document") else .[0] end
 | (try .modelPicker.options catch null) as $options
-| {modelPicker: {options: [
-    ($options | if type == "array" then .[] else empty end)
-    | select(type == "object")
-    | {model, label, description}
-    | with_entries(select(.value | type == "string"))
-    | select((.model // "") != "")
-  ]}}'
+| {
+    env: {
+      ANTHROPIC_BASE_URL: $router_url,
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: $max_context_tokens
+    },
+    modelPicker: {options: [
+      ($options | if type == "array" then .[] else empty end)
+      | select(type == "object")
+      | {model, label, description}
+      | with_entries(select(.value | type == "string"))
+      | select((.model // "") != "")
+    ]}
+  }'
 
 PICKER_PY_FILTER='
 import json, sys
@@ -260,7 +267,14 @@ for entry in options if isinstance(options, list) else []:
     row = {k: entry[k] for k in ("model", "label", "description") if isinstance(entry.get(k), str)}
     if row.get("model"):
         clean.append(row)
-json.dump({"modelPicker": {"options": clean}}, sys.stdout, separators=(",", ":"))
+out = {
+    "env": {
+        "ANTHROPIC_BASE_URL": sys.argv[2],
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": sys.argv[3],
+    },
+    "modelPicker": {"options": clean},
+}
+json.dump(out, sys.stdout, separators=(",", ":"))
 '
 
 # Only a router on this machine may supply settings.
@@ -272,9 +286,12 @@ router_is_loopback_http() {
 # sanitize_model_picker <raw-file> <out-file>
 sanitize_model_picker() {
   if command -v "$JQ_BIN" >/dev/null 2>&1; then
-    "$JQ_BIN" -c -s "$PICKER_JQ_FILTER" "$1" >"$2" 2>/dev/null
+    "$JQ_BIN" -c -s \
+      --arg router_url "$ROUTER_URL" \
+      --arg max_context_tokens "$MAX_CONTEXT_TOKENS" \
+      "$PICKER_JQ_FILTER" "$1" >"$2" 2>/dev/null
   elif command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-    "$PYTHON_BIN" -c "$PICKER_PY_FILTER" "$1" >"$2" 2>/dev/null
+    "$PYTHON_BIN" -c "$PICKER_PY_FILTER" "$1" "$ROUTER_URL" "$MAX_CONTEXT_TOKENS" >"$2" 2>/dev/null
   else
     log "warning: neither $JQ_BIN (jq) nor $PYTHON_BIN (python3) is available to validate the model picker"
     return 1
