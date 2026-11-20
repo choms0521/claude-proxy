@@ -19,12 +19,13 @@ docs/ai-setup.md를 읽고 "에이전트 절차"를 순서대로 실행해서 GP
 ## 설정이 끝나면 되는 것
 
 - `services/CLIProxyAPI`에 CLIProxyAPI가 설치되고 `cli-proxy-api` 컨테이너가 `127.0.0.1:8317`에서 실행된다.
-- `~/.zshrc`에 `CLIPROXY_KEY`와 `claude-proxy` alias가 등록된다.
-- `claude-proxy`로 실행한 Claude Code의 `/model` 목록에 GPT 모델이 나타난다.
+- 새 터미널에서 `claude`를 입력하면 프록시로 연결되고 `/model`에서 GPT를 고를 수 있다. `claude-proxy`도 같은 실행기를 사용한다.
+- `claude-ori`는 프록시 실행기를 거치지 않고 기존 Claude Code를 연다. `claude mcp`나 `claude --version` 같은 관리 명령도 기존 CLI를 사용한다.
 
 ## 요구사항
 
-- macOS, Docker Desktop, Node.js 18 이상, Git
+- macOS, zsh, Docker Desktop, Node.js 18 이상, Git
+- `PATH`에서 실행할 수 있는 Claude Code CLI (`zsh -fc 'whence -p claude'`로 확인)
 - `jq` 또는 `python3`(실행기가 모델 목록을 검사할 때 사용)
 - ChatGPT 구독 계정(Codex 로그인용)
 
@@ -125,17 +126,34 @@ read_cliproxy_key() {
 }
 ```
 
-`~/.zshrc`를 백업하고, 없는 항목만 추가한다. `REPO`는 저장소의 절대 경로로 바꾼다.
+먼저 `~/.zshrc`를 백업한다. 파일이 없는 새 컴퓨터라면 권한을 제한해 만든다. `CLIPROXY_KEY`가 이미 있으면 `config.yaml`의 `api-keys` 중 하나와 같은지 값을 출력하지 않고 확인한다. 다르면 덮어쓰지 말고 사용자에게 어느 키를 쓸지 묻는다.
 
 ```bash
-cp -p ~/.zshrc ~/.zshrc.bak-$(date +%Y%m%d-%H%M%S)
+if [ -f ~/.zshrc ]; then
+  cp -p ~/.zshrc ~/.zshrc.bak-$(date +%Y%m%d-%H%M%S)
+else
+  (umask 077; touch ~/.zshrc)
+fi
 grep -q '^export CLIPROXY_KEY=' ~/.zshrc || printf '\nexport CLIPROXY_KEY=%s\n' "$(read_cliproxy_key)" >> ~/.zshrc
-grep -q "alias claude-proxy=" ~/.zshrc || printf "alias claude-proxy='%s/bin/claude-proxy'\n" "$REPO" >> ~/.zshrc
 ```
 
-- `~/.zshrc`에 `CLIPROXY_KEY`가 이미 있으면 그 값이 `config.yaml`의 `api-keys` 중 하나와 같은지 출력 없이 비교하고, 다르면 사용자에게 어느 쪽을 쓸지 묻는다.
-- 기존 `alias claude-proxy=`가 `ANTHROPIC_BASE_URL=...` 형태(실행기를 거치지 않는 예전 방식)이면 사용자에게 알리고, 승인받은 뒤 실행기 경로로 바꾼다.
-- 라우터를 컨테이너 대신 로컬 node 프로세스로 띄우려면 alias 앞에 `CLAUDE_PROXY_MODE=local`을 붙인다.
+`~/.zshrc`와 여기서 불러오는 셸 설정에서 `claude-proxy`, `claude-ori`, `claude`의 별칭과 함수를 확인한다. 아래와 동작이 같은 정의는 유지하고 없는 항목만 순서대로 추가한다. 다른 정의가 있으면 사용자 승인 후 기존 정의를 고친다. `claude` 별칭과 `claude` 함수를 함께 두지 않는다.
+
+아래 `/absolute/path/to/claude-proxy`를 **새 컴퓨터에서 저장소를 받은 절대 경로**로 바꾼다. 기본값은 컨테이너 모드다. 로컬 Node.js로 라우터를 띄우려면 첫 줄을 `alias claude-proxy='CLAUDE_PROXY_MODE=local "/absolute/path/to/claude-proxy/bin/claude-proxy"'`로 쓴다.
+
+```zsh
+alias claude-proxy='"/absolute/path/to/claude-proxy/bin/claude-proxy"'
+alias claude-ori='command claude'
+function claude {
+  case "${1-}" in
+    mcp|plugin|plugins|config|update|install|doctor|setup-token|-v|--version|-h|--help)
+      command claude "$@" ;;
+    *) claude-proxy "$@" ;;
+  esac
+}
+```
+
+`command claude`는 같은 이름의 셸 함수 대신 `PATH`의 Claude Code 실행 파일을 호출한다. `claude-ori`를 프록시 없이 쓰려면 셸 전체에 라우터용 `ANTHROPIC_BASE_URL`을 설정하지 않는다.
 
 ### 5단계: 컨테이너 시작
 
@@ -172,6 +190,8 @@ curl -s http://127.0.0.1:3456/admin/status | python3 -c 'import sys,json; print(
 python3 -c 'import json; print([o["model"] for o in json.load(open(".claude-proxy/model-picker.json"))["modelPicker"]["options"]])'
 ```
 
+새 zsh 터미널에서 `whence -w claude claude-ori claude-proxy`를 실행한다. 위 예시대로라면 차례로 `function`, `alias`, `alias`가 나온다. `claude --version`과 `claude-ori --version`은 같은 CLI 버전을 표시해야 한다. `claude`로 세션을 열어 `/model`에 GPT가 있는지도 확인한다.
+
 다음을 모두 만족하면 성공이다.
 
 - CLIProxyAPI 모델 목록에 `gpt-`로 시작하는 모델이 있다. 비어 있으면 6단계 로그인이 끝나지 않은 것이다.
@@ -185,5 +205,5 @@ python3 -c 'import json; print([o["model"] for o in json.load(open(".claude-prox
 사용자에게 다음을 알린다.
 
 - 바뀐 파일과 백업 위치(`~/.zshrc.bak-...`). 키 값은 알리지 않는다.
-- 새 터미널을 열거나 `source ~/.zshrc`를 실행한 뒤 `claude-proxy`로 시작한다.
-- `/model`에서 GPT 모델을 고를 때 Enter가 아니라 `s`(이 세션만)를 누른다. Enter는 사용자 기본 모델로 저장되어 일반 `claude` 실행이 실패한다.
+- 새 zsh 터미널에서 `claude`로 프록시 세션을 시작하고, 원래 Claude Code가 필요할 때는 `claude-ori`를 쓴다.
+- 프록시 세션의 `/model`에서 GPT를 고른 뒤 `s`를 눌러 현재 세션에만 적용한다. Enter로 사용자 기본 모델에 저장하면 프록시 없는 `claude-ori`에서도 그 모델을 사용하려고 한다.
